@@ -30,6 +30,8 @@ export default function App() {
   const phase = useCompilationStore(s => s.phase);
   const { reset: resetCompilation } = useCompilationStore();
   const { newChat } = useChatStore();
+  const msgCount = useChatStore(s => s.messages.length);
+  const showWelcomeCrab = msgCount <= 1; // WelcomeScreen (big crab) is visible
   const [activeTab, setActiveTab] = useState<TabId>('chat');
   useBgMessage();
 
@@ -163,8 +165,8 @@ export default function App() {
         <div style={{ display: activeTab === 'settings' ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 0', minHeight: 0, overflowY: 'auto', padding: 16 }}><SettingsPanel /></div>
       </div>
 
-      {/* Floating ASCII mascot — only visible on chat tab */}
-      {activeTab === 'chat' && <CrabMascot />}
+      {/* Floating ASCII mascot — only visible on chat tab when big welcome crab is NOT shown */}
+      {activeTab === 'chat' && !showWelcomeCrab && <CrabMascot />}
 
       {/* Error toast — overlays content, auto-dismiss */}
       <ErrorToast onNavigate={(tab) => setActiveTab(tab as TabId)} />
