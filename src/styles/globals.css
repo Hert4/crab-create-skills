@@ -1,0 +1,219 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Crab warm dark palette */
+    --background: 30 4% 18%;
+    --foreground: 40 20% 96%;
+    --card: 30 4% 16%;
+    --card-foreground: 40 20% 96%;
+    --popover: 30 4% 16%;
+    --popover-foreground: 40 20% 96%;
+    --primary: 16 55% 52%;
+    --primary-foreground: 40 20% 96%;
+    --secondary: 30 4% 14%;
+    --secondary-foreground: 36 8% 72%;
+    --muted: 30 3% 22%;
+    --muted-foreground: 36 6% 56%;
+    --accent: 16 55% 52%;
+    --accent-foreground: 40 20% 96%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 40 20% 96%;
+    --border: 36 8% 22%;
+    --input: 30 4% 22%;
+    --ring: 16 55% 52%;
+    --radius: 12px;
+    --success: 142 71% 45%;
+    --warning: 43 96% 56%;
+
+    /* Crab custom vars */
+    --crab-accent: #c96442;
+    --crab-accent-hover: #d4775a;
+    --crab-accent-light: rgba(201, 100, 66, 0.1);
+    --crab-accent-medium: rgba(201, 100, 66, 0.3);
+    --crab-bg: #2f2e2b;
+    --crab-bg-secondary: #262524;
+    --crab-bg-tertiary: #201f1e;
+    --crab-text: #f7f5f0;
+    --crab-text-secondary: #b8b4a8;
+    --crab-text-muted: #908c80;
+    --crab-border: rgba(216, 211, 197, 0.12);
+    --crab-border-subtle: rgba(216, 211, 197, 0.06);
+    --crab-bg-hover: #373633;
+    --crab-border-strong: rgba(216, 211, 197, 0.20);
+    --crab-surface-raised: color-mix(in srgb, #2f2e2b 97%, white 3%);
+    --crab-surface-overlay: color-mix(in srgb, #2f2e2b 94%, white 6%);
+    --crab-glow: 0 0 20px color-mix(in srgb, var(--crab-accent) 15%, transparent);
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--crab-border);
+  }
+  body {
+    background: var(--crab-bg);
+    color: var(--crab-text);
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100dvh;
+    overflow: hidden;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(216, 211, 197, 0.15);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(216, 211, 197, 0.3);
+}
+
+/* ===== Animations ===== */
+@keyframes messageSlideIn {
+  from { opacity: 0; transform: translateY(8px); filter: blur(2px); }
+  60% { filter: blur(0); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
+@keyframes userMessageIn {
+  from { opacity: 0; transform: translateX(12px) scale(0.97); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes welcomeFadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes bubblePop {
+  from { opacity: 0; transform: scale(0.8) translateX(-4px); }
+  to { opacity: 1; transform: scale(1) translateX(0); }
+}
+
+@keyframes attachmentIn {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pulse-reply {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(201, 100, 66, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(201, 100, 66, 0); }
+}
+
+@keyframes dotBounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+@keyframes thinkingShimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes stepPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes spinnerRotate {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.95) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes toastTimer {
+  from { width: 100%; }
+  to { width: 0%; }
+}
+
+.animate-message-in {
+  animation: messageSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.animate-user-in {
+  animation: userMessageIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.animate-welcome {
+  animation: welcomeFadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.animate-attachment {
+  animation: attachmentIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.animate-bubble {
+  animation: bubblePop 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.animate-modal {
+  animation: modalIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* ===== Thinking dots ===== */
+.thinking-dots span {
+  display: inline-block;
+  animation: dotBounce 1.4s ease-in-out infinite;
+}
+.thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+/* ===== Crab mascot glow ===== */
+.crab-glow {
+  filter: drop-shadow(0 0 8px rgba(201, 100, 66, 0.3));
+}
+
+/* ===== Prose overrides for dark mode ===== */
+.prose-crab {
+  color: var(--crab-text);
+  overflow-x: hidden;
+  word-break: break-word;
+  max-width: 100%;
+}
+.prose-crab strong { color: var(--crab-text); }
+.prose-crab a { color: var(--crab-accent-hover); text-decoration-color: rgba(212, 119, 90, 0.4); }
+.prose-crab a:hover { text-decoration-color: rgba(212, 119, 90, 1); }
+.prose-crab code {
+  background: var(--crab-bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: var(--crab-accent-hover);
+}
+.prose-crab pre {
+  background: var(--crab-bg-tertiary);
+  border: 0.5px solid var(--crab-border);
+  border-radius: 12px;
+  padding: 12px 16px;
+}
+.prose-crab pre code {
+  background: none;
+  padding: 0;
+  color: var(--crab-text);
+}
+.prose-crab blockquote {
+  border-left: 3px solid var(--crab-accent);
+  background: var(--crab-bg-tertiary);
+  padding: 8px 14px;
+  border-radius: 0 8px 8px 0;
+  font-style: italic;
+  color: var(--crab-text-secondary);
+}
+.prose-crab h1, .prose-crab h2, .prose-crab h3, .prose-crab h4 {
+  color: var(--crab-text);
+}
+.prose-crab ul, .prose-crab ol { color: var(--crab-text-secondary); }
+.prose-crab hr { border-color: var(--crab-border); }

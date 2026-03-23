@@ -1,0 +1,268 @@
+import type { Settings } from '../sidepanel/lib/types';
+
+const DEFAULT_SETTINGS: Settings = {
+  provider: 'openai-compatible',
+  baseUrl: '',
+  apiKey: '',
+  modelStrong: '',
+  modelFast: '',
+  modelEval: '',
+  maxIterations: 3,
+  minScore: 0.85,
+  language: 'vi',
+};
+
+let cachedSettings: Settings | null = null;
+
+async function getSettings(): Promise<Settings> {
+  if (cachedSettings) return cachedSettings;
+  return new Promise((resolve) => {
+    chrome.storage.local.get('settings', (data) => {
+      cachedSettings = data.settings || DEFAULT_SETTINGS;
+      resolve(cachedSettings!);
+    });
+  });
+}
+
+// Listen for settings changes
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.settings) cachedSettings = changes.settings.newValue;
+});
+
+/**
+ * Low-level fetch helper. Picks model from settings if not specified.
+ */
+async function fetchChat(opts: {
+  system: string;
+  user: string;
+  model: string;
+  temperature?: number;
+}): Promise<string> {
+  const s = await getSettings();
+  const res = await fetch(`${s.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(s.apiKey ? { Authorization: `Bearer ${s.apiKey}` } : {}),
+    },
+    body: JSON.stringify({
+      model: opts.model,
+      messages: [
+        { role: 'system', content: opts.system },
+        { role: 'user', content: opts.user },
+      ],
+      temperature: opts.temperature ?? 0.3,
+      max_tokens: 4096,
+    }),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
+/**
+ * Call strong model (skill creation, extraction, assembly, improvement).
+ */
+export async function chat(opts: {
+  system: string;
+  user: string;
+  model?: string;
+  temperature?: number;
+}): Promise<string> {
+  const s = await getSettings();
+  return fetchChat({ ...opts, model: opts.model || s.modelStrong });
+}
+
+/**
+ * Call fast/weak model (grading, baseline execution, chat replies).
+ */
+export async function chatFast(opts: {
+  system: string;
+  user: string;
+  model?: string;
+  temperature?: number;
+}): Promise<string> {
+  const s = await getSettings();
+  return fetchChat({ ...opts, model: opts.model || s.modelFast });
+}
+
+/**
+ * Call LLM with image (vision/multimodal).
+ */
+export async function chatWithImage(opts: {
+  prompt: string;
+  imageBase64: string;
+  mimeType?: string;
+  model?: string;
+}): Promise<string> {
+  const s = await getSettings();
+  const res = await fetch(`${s.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(s.apiKey ? { Authorization: `Bearer ${s.apiKey}` } : {}),
+    },
+    body: JSON.stringify({
+      model: opts.model || s.modelStrong,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: `data:${opts.mimeType || 'image/png'};base64,${opts.imageBase64}` } },
+          { type: 'text', text: opts.prompt },
+        ],
+      }],
+      temperature: 0.3,
+      max_tokens: 4096,
+    }),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
+/**
+ * Call LLM, parse JSON response. Retry once on failure.
+ */
+export async function chatJSON<T>(opts: {
+  system: string;
+  user: string;
+  model?: string;
+  temperature?: number;
+}): Promise<T> {
+  const raw = await chat({
+    ...opts,
+    system: opts.system + '\n\nReturn ONLY valid JSON. No markdown fences, no explanation.',
+  });
+  try {
+    return parseJSON<T>(raw);
+  } catch {
+    // Retry once
+    const raw2 = await chat({
+      ...opts,
+      system: opts.system + '\n\nIMPORTANT: Return ONLY valid JSON. No markdown fences, no explanation, no text before or after the JSON.',
+    });
+    return parseJSON<T>(raw2);
+  }
+}
+
+function parseJSON<T>(text: string): T {
+  let clean = text.trim();
+  if (clean.startsWith('```')) clean = clean.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+  return JSON.parse(clean);
+}
+
+/**
+ * Call fast model, parse JSON response. For grading & baseline tasks.
+ */
+export async function chatJSONFast<T>(opts: {
+  system: string;
+  user: string;
+  model?: string;
+  temperature?: number;
+}): Promise<T> {
+  const raw = await chatFast({
+    ...opts,
+    system: opts.system + '\n\nReturn ONLY valid JSON. No markdown fences, no explanation.',
+  });
+  try {
+    return parseJSON<T>(raw);
+  } catch {
+    const raw2 = await chatFast({
+      ...opts,
+      system: opts.system + '\n\nIMPORTANT: Return ONLY valid JSON. No markdown fences, no explanation, no text before or after the JSON.',
+    });
+    return parseJSON<T>(raw2);
+  }
+}
+
+/**
+ * Call eval model (eval generation + grading). Falls back to fast model if not set.
+ */
+export async function chatEval(opts: {
+  system: string;
+  user: string;
+  model?: string;
+  temperature?: number;
+}): Promise<string> {
+  const s = await getSettings();
+  return fetchChat({ ...opts, model: opts.model || s.modelEval || s.modelFast });
+}
+
+/**
+ * Call eval model, parse JSON. For eval generation & grading.
+ */
+export async function chatJSONEval<T>(opts: {
+  system: string;
+  user: string;
+  model?: string;
+  temperature?: number;
+}): Promise<T> {
+  const raw = await chatEval({
+    ...opts,
+    system: opts.system + '\n\nReturn ONLY valid JSON. No markdown fences, no explanation.',
+  });
+  try {
+    return parseJSON<T>(raw);
+  } catch {
+    const raw2 = await chatEval({
+      ...opts,
+      system: opts.system + '\n\nIMPORTANT: Return ONLY valid JSON. No markdown fences, no explanation, no text before or after the JSON.',
+    });
+    return parseJSON<T>(raw2);
+  }
+}
+
+/**
+ * Call LLM with streaming. Returns full text, sends chunks via callback.
+ */
+export async function chatStream(opts: {
+  system: string;
+  user: string;
+  model?: string;
+  temperature?: number;
+  onChunk: (delta: string, full: string) => void;
+}): Promise<string> {
+  const s = await getSettings();
+  const res = await fetch(`${s.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(s.apiKey ? { Authorization: `Bearer ${s.apiKey}` } : {}),
+    },
+    body: JSON.stringify({
+      model: opts.model || s.modelStrong,
+      messages: [
+        { role: 'system', content: opts.system },
+        { role: 'user', content: opts.user },
+      ],
+      temperature: opts.temperature ?? 0.3,
+      max_tokens: 4096,
+      stream: true,
+    }),
+  });
+
+  if (!res.ok) throw new Error(`API ${res.status}`);
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let full = '';
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const d = line.slice(6).trim();
+      if (d === '[DONE]') continue;
+      try {
+        const delta = JSON.parse(d).choices?.[0]?.delta?.content || '';
+        if (delta) { full += delta; opts.onChunk(delta, full); }
+      } catch { /* skip */ }
+    }
+  }
+  return full;
+}
