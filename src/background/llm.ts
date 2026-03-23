@@ -6,7 +6,7 @@ const DEFAULT_SETTINGS: Settings = {
   apiKey: '',
   modelStrong: '',
   modelFast: '',
-  modelEval: '',
+  modelTarget: '',
   maxIterations: 3,
   minScore: 0.85,
   language: 'vi',
@@ -294,7 +294,7 @@ export async function chatEval(opts: {
   temperature?: number;
 }): Promise<string> {
   const s = await getSettings();
-  return fetchChat({ ...opts, model: opts.model || s.modelEval || s.modelFast });
+  return fetchChat({ ...opts, model: opts.model || s.modelFast });
 }
 
 /**

@@ -108,7 +108,6 @@ function ToolCard({ tool }: { tool: DetectedTool }) {
 
 export function ToolsPanel() {
   const agentTemplate = useCompilationStore(s => s.agentTemplate);
-  const [activeFormat, setActiveFormat] = useState<SchemaFormat>('openai');
 
   if (!agentTemplate) {
     return (
@@ -122,6 +121,8 @@ export function ToolsPanel() {
 
   const { tools } = agentTemplate.tools;
   const toolOutput = agentTemplate.tools;
+  const preferred = toolOutput.preferredFormat ?? 'openai';
+  const [activeFormat, setActiveFormat] = useState<SchemaFormat>(preferred);
 
   if (tools.length === 0) {
     return (
@@ -184,22 +185,36 @@ export function ToolsPanel() {
             background: 'var(--crab-surface-overlay)',
           }}>
             <div style={{ display: 'flex', gap: 4 }}>
-              {formatTabs.map(tab => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveFormat(tab.id)}
-                  style={{
-                    padding: '3px 10px', borderRadius: 6, fontSize: 11, fontWeight: 500,
-                    border: '1px solid',
-                    borderColor: activeFormat === tab.id ? 'var(--crab-accent)' : 'transparent',
-                    background: activeFormat === tab.id ? 'var(--crab-accent-light)' : 'transparent',
-                    color: activeFormat === tab.id ? 'var(--crab-accent)' : 'var(--crab-text-muted)',
-                    cursor: 'pointer', transition: 'all 0.15s',
-                  }}
-                >
-                  {tab.label}
-                </button>
-              ))}
+              {formatTabs.map(tab => {
+                const isPreferred = tab.id === preferred;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveFormat(tab.id)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 4,
+                      padding: '3px 10px', borderRadius: 6, fontSize: 11, fontWeight: 500,
+                      border: '1px solid',
+                      borderColor: activeFormat === tab.id ? 'var(--crab-accent)' : 'transparent',
+                      background: activeFormat === tab.id ? 'var(--crab-accent-light)' : 'transparent',
+                      color: activeFormat === tab.id ? 'var(--crab-accent)' : 'var(--crab-text-muted)',
+                      cursor: 'pointer', transition: 'all 0.15s',
+                    }}
+                  >
+                    {tab.label}
+                    {isPreferred && (
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, letterSpacing: '0.03em',
+                        padding: '1px 4px', borderRadius: 4,
+                        background: activeFormat === tab.id ? 'var(--crab-accent)' : 'var(--crab-bg-hover)',
+                        color: activeFormat === tab.id ? '#fff' : 'var(--crab-accent)',
+                      }}>
+                        ★
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
             <CopyButton text={schemaContent} />
           </div>

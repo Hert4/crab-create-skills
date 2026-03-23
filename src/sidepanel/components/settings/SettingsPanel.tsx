@@ -120,11 +120,11 @@ export function SettingsPanel() {
             </div>
           </div>
           <div>
-            <label style={labelStyle}>Eval Model <span style={{ color: 'var(--crab-text-muted)', fontWeight: 400 }}>(grading & test generation)</span></label>
+            <label style={labelStyle}>Target Model <span style={{ color: 'var(--crab-text-muted)', fontWeight: 400 }}>(model your agent will run on)</span></label>
             <input
-              value={settings.modelEval}
-              onChange={(e) => update({ modelEval: e.target.value })}
-              placeholder="gpt-4o-mini (falls back to Fast Model if empty)"
+              value={settings.modelTarget}
+              onChange={(e) => update({ modelTarget: e.target.value })}
+              placeholder={isAnthropic ? 'claude-opus-4-5' : 'gpt-4o'}
               style={inputStyle}
               onFocus={(e) => { e.target.style.borderColor = 'var(--crab-accent)'; }}
               onBlur={(e) => { e.target.style.borderColor = 'var(--crab-border)'; }}

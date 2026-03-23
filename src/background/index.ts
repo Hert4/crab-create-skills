@@ -12,7 +12,7 @@ const DEFAULTS: Settings = {
   apiKey: '',
   modelStrong: '',
   modelFast: '',
-  modelEval: '',
+  modelTarget: '',
   maxIterations: 3,
   minScore: 0.85,
   language: 'vi',

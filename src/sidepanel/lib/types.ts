@@ -4,8 +4,8 @@ export interface Settings {
   baseUrl: string;
   apiKey: string;
   modelStrong: string;   // Extraction, assembly, skill improvement
-  modelFast: string;     // Chat replies, withSkill/baseline execution
-  modelEval: string;     // Eval generation + grading (can be same as fast)
+  modelFast: string;     // Chat, grading, baseline execution
+  modelTarget: string;   // Model the agent will be deployed on — determines tool schema format
   maxIterations: number;
   minScore: number;
   language: 'vi' | 'en';
@@ -17,7 +17,7 @@ export const DEFAULT_SETTINGS: Settings = {
   apiKey: '',
   modelStrong: '',
   modelFast: '',
-  modelEval: '',
+  modelTarget: '',
   maxIterations: 3,
   minScore: 0.85,
   language: 'vi',
@@ -199,7 +199,8 @@ export interface ToolOutput {
   tools: DetectedTool[];
   openai: OpenAIToolDef[];
   anthropic: AnthropicToolDef[];
-  openapi: string;   // YAML string
+  openapi: string;             // YAML string
+  preferredFormat: 'openai' | 'anthropic';  // Based on target model
 }
 
 export interface AgentConfig {

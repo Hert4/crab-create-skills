@@ -14,6 +14,7 @@ export function generateToolSchemas(tools: DetectedTool[]): ToolOutput {
     openai: toOpenAI(tools),
     anthropic: toAnthropic(tools),
     openapi: toOpenAPI(tools),
+    preferredFormat: 'openai',  // Will be overridden by agent-assembly based on target model
   };
 }
 

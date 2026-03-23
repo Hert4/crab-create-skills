@@ -89,14 +89,14 @@ export async function compile(files: ParsedFile[], userMessage: string): Promise
 
     // ===== Phase 6: Agent Assembly =====
     sendProgress('agent', 'Assembling agent template...', 88);
-    const modelFast = (settings.modelFast as string) || '';
+    const modelTarget = (settings.modelTarget as string) || (settings.modelFast as string) || '';
     const agentTemplate: AgentTemplate = await assembleAgent(
       intent,
       steps,
       constraints,
       skill.content,
       toolOutput,
-      modelFast,
+      modelTarget,
     );
     if (cancelled) throw new Error('Cancelled');
 

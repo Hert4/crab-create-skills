@@ -13,7 +13,7 @@ import type {
 /**
  * Determine AgentConfig based on domain from intent.
  */
-function buildAgentConfig(intent: IntentResult, modelFast: string): AgentConfig {
+function buildAgentConfig(intent: IntentResult, modelTarget: string): AgentConfig {
   const domain = intent.domain.toLowerCase();
   const skillType = intent.skill_type;
 
@@ -67,7 +67,7 @@ function buildAgentConfig(intent: IntentResult, modelFast: string): AgentConfig 
   }
 
   return {
-    model: modelFast || 'gpt-4o-mini',
+    model: modelTarget || 'gpt-4o-mini',
     temperature,
     max_tokens: maxTokens,
     top_p: 1,
@@ -79,6 +79,14 @@ function buildAgentConfig(intent: IntentResult, modelFast: string): AgentConfig 
 }
 
 /**
+ * Detect which tool schema format to use based on target model name.
+ */
+function detectSchemaFormat(modelTarget: string): 'anthropic' | 'openai' {
+  if (!modelTarget) return 'openai';
+  return /claude/i.test(modelTarget) ? 'anthropic' : 'openai';
+}
+
+/**
  * Assemble the complete AgentTemplate from all prior phase outputs.
  */
 export async function assembleAgent(
@@ -87,10 +95,8 @@ export async function assembleAgent(
   constraints: ConstraintResult,
   skillContent: string,
   toolOutput: ToolOutput,
-  modelFast: string,
+  modelTarget: string,
 ): Promise<AgentTemplate> {
-  const toolNames = toolOutput.tools.map(t => `${t.name}: ${t.description}`).join('\n');
-
   const userPayload = JSON.stringify({
     intent,
     steps,
@@ -104,7 +110,8 @@ export async function assembleAgent(
     temperature: 0.3,
   });
 
-  const config = buildAgentConfig(intent, modelFast);
+  const config = buildAgentConfig(intent, modelTarget);
+  const schemaFormat = detectSchemaFormat(modelTarget);
 
   const metadata: AgentMetadata = {
     name: intent.skill_name,
@@ -117,7 +124,7 @@ export async function assembleAgent(
     metadata,
     systemPrompt,
     skillContent,
-    tools: toolOutput,
-    config: { ...config, model: modelFast || config.model },
+    tools: { ...toolOutput, preferredFormat: schemaFormat },
+    config: { ...config, model: modelTarget || config.model },
   };
 }
