@@ -29,8 +29,12 @@ chrome.storage.onChanged.addListener((changes) => {
   if (changes.settings) cachedSettings = changes.settings.newValue;
 });
 
+function isAnthropic(s: Settings): boolean {
+  return s.provider === 'anthropic' || s.baseUrl.includes('api.anthropic.com');
+}
+
 /**
- * Low-level fetch helper. Picks model from settings if not specified.
+ * Low-level fetch helper. Handles both OpenAI-compatible and Anthropic APIs.
  */
 async function fetchChat(opts: {
   system: string;
@@ -39,6 +43,31 @@ async function fetchChat(opts: {
   temperature?: number;
 }): Promise<string> {
   const s = await getSettings();
+
+  if (isAnthropic(s)) {
+    // Anthropic Messages API
+    const baseUrl = s.baseUrl || 'https://api.anthropic.com';
+    const res = await fetch(`${baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': s.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: opts.model,
+        system: opts.system,
+        messages: [{ role: 'user', content: opts.user }],
+        temperature: opts.temperature ?? 0.3,
+        max_tokens: 4096,
+      }),
+    });
+    if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    return data.content?.[0]?.text || '';
+  }
+
+  // OpenAI-compatible
   const res = await fetch(`${s.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -61,8 +90,60 @@ async function fetchChat(opts: {
 }
 
 /**
- * Call strong model (skill creation, extraction, assembly, improvement).
+ * Multi-turn chat with history. Used for the chat panel conversation.
  */
+export async function chatWithHistory(opts: {
+  system: string;
+  history: { role: 'user' | 'assistant'; content: string }[];
+  temperature?: number;
+}): Promise<string> {
+  const s = await getSettings();
+  const model = s.modelFast;
+
+  if (isAnthropic(s)) {
+    const baseUrl = s.baseUrl || 'https://api.anthropic.com';
+    const res = await fetch(`${baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': s.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model,
+        system: opts.system,
+        messages: opts.history,
+        temperature: opts.temperature ?? 0.7,
+        max_tokens: 1024,
+      }),
+    });
+    if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    return data.content?.[0]?.text || '';
+  }
+
+  const res = await fetch(`${s.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(s.apiKey ? { Authorization: `Bearer ${s.apiKey}` } : {}),
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: opts.system },
+        ...opts.history,
+      ],
+      temperature: opts.temperature ?? 0.7,
+      max_tokens: 1024,
+    }),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
+
 export async function chat(opts: {
   system: string;
   user: string;
@@ -96,6 +177,34 @@ export async function chatWithImage(opts: {
   model?: string;
 }): Promise<string> {
   const s = await getSettings();
+  const mimeType = opts.mimeType || 'image/png';
+
+  if (isAnthropic(s)) {
+    const baseUrl = s.baseUrl || 'https://api.anthropic.com';
+    const res = await fetch(`${baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': s.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: opts.model || s.modelStrong,
+        max_tokens: 4096,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mimeType, data: opts.imageBase64 } },
+            { type: 'text', text: opts.prompt },
+          ],
+        }],
+      }),
+    });
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    const data = await res.json();
+    return data.content?.[0]?.text || '';
+  }
+
   const res = await fetch(`${s.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -107,7 +216,7 @@ export async function chatWithImage(opts: {
       messages: [{
         role: 'user',
         content: [
-          { type: 'image_url', image_url: { url: `data:${opts.mimeType || 'image/png'};base64,${opts.imageBase64}` } },
+          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${opts.imageBase64}` } },
           { type: 'text', text: opts.prompt },
         ],
       }],
@@ -214,6 +323,7 @@ export async function chatJSONEval<T>(opts: {
 
 /**
  * Call LLM with streaming. Returns full text, sends chunks via callback.
+ * Handles both OpenAI SSE format and Anthropic SSE format.
  */
 export async function chatStream(opts: {
   system: string;
@@ -223,23 +333,46 @@ export async function chatStream(opts: {
   onChunk: (delta: string, full: string) => void;
 }): Promise<string> {
   const s = await getSettings();
-  const res = await fetch(`${s.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(s.apiKey ? { Authorization: `Bearer ${s.apiKey}` } : {}),
-    },
-    body: JSON.stringify({
-      model: opts.model || s.modelStrong,
-      messages: [
-        { role: 'system', content: opts.system },
-        { role: 'user', content: opts.user },
-      ],
-      temperature: opts.temperature ?? 0.3,
-      max_tokens: 4096,
-      stream: true,
-    }),
-  });
+
+  let res: Response;
+
+  if (isAnthropic(s)) {
+    const baseUrl = s.baseUrl || 'https://api.anthropic.com';
+    res = await fetch(`${baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': s.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: opts.model || s.modelStrong,
+        system: opts.system,
+        messages: [{ role: 'user', content: opts.user }],
+        temperature: opts.temperature ?? 0.3,
+        max_tokens: 4096,
+        stream: true,
+      }),
+    });
+  } else {
+    res = await fetch(`${s.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(s.apiKey ? { Authorization: `Bearer ${s.apiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        model: opts.model || s.modelStrong,
+        messages: [
+          { role: 'system', content: opts.system },
+          { role: 'user', content: opts.user },
+        ],
+        temperature: opts.temperature ?? 0.3,
+        max_tokens: 4096,
+        stream: true,
+      }),
+    });
+  }
 
   if (!res.ok) throw new Error(`API ${res.status}`);
 
@@ -259,7 +392,12 @@ export async function chatStream(opts: {
       const d = line.slice(6).trim();
       if (d === '[DONE]') continue;
       try {
-        const delta = JSON.parse(d).choices?.[0]?.delta?.content || '';
+        const parsed = JSON.parse(d);
+        // Anthropic: event type content_block_delta
+        const delta =
+          parsed.delta?.text ||                           // Anthropic streaming
+          parsed.choices?.[0]?.delta?.content ||          // OpenAI streaming
+          '';
         if (delta) { full += delta; opts.onChunk(delta, full); }
       } catch { /* skip */ }
     }

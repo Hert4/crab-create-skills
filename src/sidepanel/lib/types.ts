@@ -45,7 +45,7 @@ export interface ChatMessage {
 }
 
 // ==================== Pipeline ====================
-export type Phase = 'idle' | 'ingest' | 'extract' | 'assemble' | 'evaluate' | 'validate' | 'done' | 'error';
+export type Phase = 'idle' | 'ingest' | 'extract' | 'assemble' | 'evaluate' | 'validate' | 'agent' | 'done' | 'error';
 
 export interface CompilationState {
   phase: Phase;
@@ -54,6 +54,7 @@ export interface CompilationState {
   skill: SkillOutput | null;
   evals: EvalSet | null;
   validation: ValidationResult | null;
+  agentTemplate: AgentTemplate | null;
   error: string | null;
 }
 
@@ -154,6 +155,79 @@ export interface ValidationResult {
   finalSkillContent: string;
 }
 
+// ==================== Tool Detection & Agent Template ====================
+export interface ToolParameter {
+  name: string;
+  type: 'string' | 'number' | 'boolean' | 'array' | 'object';
+  description: string;
+  required: boolean;
+  enum?: string[];
+}
+
+export interface DetectedTool {
+  name: string;            // snake_case, e.g. "search_customer"
+  description: string;     // What the tool does
+  trigger: string;         // When the agent should call this tool
+  parameters: ToolParameter[];
+  returns: string;         // What the tool returns
+}
+
+export interface OpenAIToolDef {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: {
+      type: 'object';
+      properties: Record<string, { type: string; description: string; enum?: string[] }>;
+      required: string[];
+    };
+  };
+}
+
+export interface AnthropicToolDef {
+  name: string;
+  description: string;
+  input_schema: {
+    type: 'object';
+    properties: Record<string, { type: string; description: string; enum?: string[] }>;
+    required: string[];
+  };
+}
+
+export interface ToolOutput {
+  tools: DetectedTool[];
+  openai: OpenAIToolDef[];
+  anthropic: AnthropicToolDef[];
+  openapi: string;   // YAML string
+}
+
+export interface AgentConfig {
+  model: string;
+  temperature: number;
+  max_tokens: number;
+  top_p: number;
+  memory: {
+    type: 'none' | 'summary' | 'full';
+    max_turns: number;
+  };
+}
+
+export interface AgentMetadata {
+  name: string;
+  version: string;
+  domain: string;
+  description: string;
+}
+
+export interface AgentTemplate {
+  metadata: AgentMetadata;
+  systemPrompt: string;
+  skillContent: string;
+  tools: ToolOutput;
+  config: AgentConfig;
+}
+
 // ==================== History ====================
 export interface HistoryEntry {
   id: string;
@@ -168,7 +242,8 @@ export interface HistoryEntry {
 // Sidepanel -> Background
 export type ToBackground =
   | { type: 'COMPILE'; data: { files: ParsedFile[]; userMessage: string } }
-  | { type: 'CHAT'; data: { message: string } }
+  | { type: 'CHAT'; data: { message: string; context?: string; history?: { role: 'user' | 'assistant'; content: string }[] } }
+  | { type: 'CLASSIFY'; data: { message: string } }
   | { type: 'VALIDATE'; data: { skillContent: string; evals: EvalSet } }
   | { type: 'CANCEL' }
   | { type: 'GET_SETTINGS' }
@@ -181,5 +256,6 @@ export type ToSidepanel =
   | { type: 'SKILL_READY'; skill: SkillOutput }
   | { type: 'EVALS_READY'; evals: EvalSet }
   | { type: 'VALIDATION_PROGRESS'; iteration: number; score: number }
+  | { type: 'AGENT_READY'; agentTemplate: AgentTemplate }
   | { type: 'DONE'; result: CompilationState }
   | { type: 'ERROR'; error: string };

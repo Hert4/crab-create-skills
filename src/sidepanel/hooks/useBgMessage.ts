@@ -7,7 +7,7 @@ import type { ToSidepanel } from '@/lib/types';
  * Listen for messages from background.ts and update stores.
  */
 export function useBgMessage() {
-  const { setPhase, setSkill, setEvals, setValidation, setError } = useCompilationStore();
+  const { setPhase, setSkill, setEvals, setValidation, setAgentTemplate, setError } = useCompilationStore();
   const { addMessage, updateLastAssistant, setProcessing } = useChatStore();
 
   useEffect(() => {
@@ -29,6 +29,15 @@ export function useBgMessage() {
         case 'VALIDATION_PROGRESS':
           setPhase('validate', `Iteration ${msg.iteration}: ${(msg.score * 100).toFixed(0)}%`);
           break;
+        case 'AGENT_READY': {
+          setAgentTemplate(msg.agentTemplate);
+          const toolCount = msg.agentTemplate.tools.tools.length;
+          const toolMsg = toolCount > 0
+            ? `Found **${toolCount} tool${toolCount > 1 ? 's' : ''}** — see the **Tools** tab for schemas (OpenAI / Anthropic / OpenAPI).`
+            : `No external tools detected — this skill works through reasoning only (no API calls needed).`;
+          addMessage({ role: 'assistant', content: `Agent template ready! ${toolMsg}\n\nCheck the **Agent** tab to preview the system prompt and export all files.` });
+          break;
+        }
         case 'DONE':
           setPhase('done', msg.result.detail, 100);
           setProcessing(false);
@@ -38,12 +47,12 @@ export function useBgMessage() {
         case 'ERROR':
           setError(msg.error);
           setProcessing(false);
-          addMessage({ role: 'assistant', content: `Có lỗi xảy ra trong quá trình tạo skill. Xem thông báo lỗi bên trên để biết chi tiết.` });
+          addMessage({ role: 'assistant', content: `❌ **Lỗi:** \`${msg.error}\`\n\nKiểm tra console (F12 → Service Worker) để xem chi tiết.` });
           break;
       }
     };
 
     chrome.runtime.onMessage.addListener(handler);
     return () => chrome.runtime.onMessage.removeListener(handler);
-  }, [setPhase, setSkill, setEvals, setValidation, setError, addMessage, updateLastAssistant, setProcessing]);
+  }, [setPhase, setSkill, setEvals, setValidation, setAgentTemplate, setError, addMessage, updateLastAssistant, setProcessing]);
 }

@@ -5,6 +5,17 @@ import { RotateCcw } from 'lucide-react';
 export function SettingsPanel() {
   const { settings, update } = useSettings();
 
+  const isAnthropic = settings.provider === 'anthropic';
+  const isOllama = settings.provider === 'ollama';
+
+  const modelStrongPlaceholder = isAnthropic
+    ? 'claude-opus-4-5'
+    : isOllama ? 'llama3.1:70b' : 'gpt-4o';
+  const modelFastPlaceholder = isAnthropic
+    ? 'claude-haiku-4-5-20251001'
+    : isOllama ? 'llama3.1:8b' : 'gpt-4o-mini';
+  const apiKeyPlaceholder = isAnthropic ? 'sk-ant-...' : isOllama ? '(not required)' : 'sk-...';
+
   const inputStyle: React.CSSProperties = {
     background: 'var(--crab-surface-overlay)',
     border: '1px solid var(--crab-border)',
@@ -43,7 +54,16 @@ export function SettingsPanel() {
             <label style={labelStyle}>Provider</label>
             <select
               value={settings.provider}
-              onChange={(e) => update({ provider: e.target.value as typeof settings.provider })}
+              onChange={(e) => {
+                const provider = e.target.value as typeof settings.provider;
+                const urlMap: Record<string, string> = {
+                  openai: 'https://api.openai.com/v1',
+                  anthropic: 'https://api.anthropic.com',
+                  ollama: 'http://localhost:11434/v1',
+                  'openai-compatible': settings.baseUrl,
+                };
+                update({ provider, baseUrl: urlMap[provider] ?? '' });
+              }}
               style={inputStyle}
             >
               <option value="openai-compatible">OpenAI Compatible</option>
@@ -69,7 +89,7 @@ export function SettingsPanel() {
               type="password"
               value={settings.apiKey}
               onChange={(e) => update({ apiKey: e.target.value })}
-              placeholder="sk-..."
+              placeholder={apiKeyPlaceholder}
               style={inputStyle}
               onFocus={(e) => { e.target.style.borderColor = 'var(--crab-accent)'; }}
               onBlur={(e) => { e.target.style.borderColor = 'var(--crab-border)'; }}
@@ -81,7 +101,7 @@ export function SettingsPanel() {
               <input
                 value={settings.modelStrong}
                 onChange={(e) => update({ modelStrong: e.target.value })}
-                placeholder="gpt-4o"
+                placeholder={modelStrongPlaceholder}
                 style={inputStyle}
                 onFocus={(e) => { e.target.style.borderColor = 'var(--crab-accent)'; }}
                 onBlur={(e) => { e.target.style.borderColor = 'var(--crab-border)'; }}
@@ -92,7 +112,7 @@ export function SettingsPanel() {
               <input
                 value={settings.modelFast}
                 onChange={(e) => update({ modelFast: e.target.value })}
-                placeholder="gpt-4o-mini"
+                placeholder={modelFastPlaceholder}
                 style={inputStyle}
                 onFocus={(e) => { e.target.style.borderColor = 'var(--crab-accent)'; }}
                 onBlur={(e) => { e.target.style.borderColor = 'var(--crab-border)'; }}

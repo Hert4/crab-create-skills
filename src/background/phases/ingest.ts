@@ -8,14 +8,41 @@ If it contains Vietnamese, keep Vietnamese.
 Mark unclear parts with [unclear].
 Return structured text, not JSON.`;
 
+const EXPAND_PROMPT = `You are a technical writer helping convert a short user request into a detailed workflow specification.
+
+The user provided a very short description of what they want to build (a tool, skill, or agent capability).
+Expand it into a complete workflow document with:
+1. Purpose & overview (2-3 sentences)
+2. Input parameters the tool/skill accepts (name, type, description, required/optional)
+3. Step-by-step execution flow (what happens internally)
+4. Output/return value description
+5. Error cases and how to handle them
+6. Example usage scenario
+
+Be specific and technical. Infer reasonable details from context.
+Write in the same language as the user's input (Vietnamese if they wrote Vietnamese).
+Return plain text, not JSON.`;
+
 /**
  * Combine all file contents + user message into a single document text.
+ * If only a short text description is given (no files), expand it first.
  */
 export async function ingest(files: ParsedFile[], userMessage: string): Promise<string> {
   const parts: string[] = [];
 
   if (userMessage.trim()) {
-    parts.push(`## User description\n\n${userMessage}`);
+    // Short description with no files → expand into full spec using LLM
+    const isShort = userMessage.trim().length < 200 && files.length === 0;
+    if (isShort) {
+      const expanded = await llm.chatFast({
+        system: EXPAND_PROMPT,
+        user: userMessage.trim(),
+        temperature: 0.4,
+      });
+      parts.push(`## User request\n\n${userMessage}\n\n## Expanded specification\n\n${expanded}`);
+    } else {
+      parts.push(`## User description\n\n${userMessage}`);
+    }
   }
 
   for (const file of files) {

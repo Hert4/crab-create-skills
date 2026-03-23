@@ -2,21 +2,9 @@ import { useChatStore } from '@/stores/chatStore';
 import { useCompilationStore } from '@/stores/compilationStore';
 import { useSettings } from '@/hooks/useSettings';
 
-const COMPILE_KEYWORDS = [
-  'skill', 'tạo', 'create', 'quy trình', 'process', 'workflow',
-  'nghiệp vụ', 'business', 'generate', 'compile', 'build',
-  'document', 'tài liệu', 'file', 'pdf', 'docx',
-];
-
-function shouldCompile(message: string, hasFiles: boolean): boolean {
-  if (hasFiles) return true;
-  const lower = message.toLowerCase();
-  return COMPILE_KEYWORDS.some((kw) => lower.includes(kw));
-}
-
 export function useCompilation() {
-  const { addMessage, attachedFiles, clearFiles, setProcessing } = useChatStore();
-  const { reset, setError } = useCompilationStore();
+  const { addMessage, attachedFiles, clearFiles, setProcessing, messages } = useChatStore();
+  const { reset, setError, skill, agentTemplate } = useCompilationStore();
   const { settings } = useSettings();
 
   const startCompilation = async (userMessage: string) => {
@@ -30,7 +18,6 @@ export function useCompilation() {
     }
 
     const hasFiles = attachedFiles.length > 0;
-    const isCompile = shouldCompile(userMessage, hasFiles);
 
     // Add user message to chat
     addMessage({
@@ -38,6 +25,21 @@ export function useCompilation() {
       content: userMessage,
       files: hasFiles ? attachedFiles : undefined,
     });
+
+    // If files attached → always compile. Otherwise ask background to classify intent.
+    let isCompile = hasFiles;
+    if (!isCompile) {
+      try {
+        const r = await chrome.runtime.sendMessage({
+          type: 'CLASSIFY',
+          data: { message: userMessage },
+        });
+        isCompile = r?.compile === true;
+      } catch {
+        // If classify fails, fall back to compile (safer)
+        isCompile = true;
+      }
+    }
 
     if (isCompile) {
       // Full compilation pipeline
@@ -57,12 +59,32 @@ export function useCompilation() {
         setProcessing(false);
       }
     } else {
-      // Simple chat
+      // Simple chat — include conversation history + compilation context
       setProcessing(true);
       try {
+        // Build history: exclude welcome msg, system msgs, streaming msgs, keep last 20
+        const history = messages
+          .filter(m => m.role !== 'system' && !m.isStreaming && m.id !== 'welcome' && !m.id.startsWith('welcome-'))
+          .slice(-20)
+          .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+
+        const toolCount = agentTemplate?.tools.tools.length ?? 0;
+        const contextLines: string[] = [];
+        if (skill) {
+          contextLines.push(`Current compiled skill: "${skill.name}" (${skill.intent.skill_type}, domain: ${skill.intent.domain})`);
+          contextLines.push(`Steps: ${skill.steps.steps.length}, Hard rules: ${skill.constraints.hard_rules.length}`);
+        }
+        if (agentTemplate) {
+          contextLines.push(`Tools detected: ${toolCount > 0 ? toolCount + ' tools (' + agentTemplate.tools.tools.map(t => t.name).join(', ') + ')' : 'none — pure reasoning skill, no external API calls needed'}`);
+          contextLines.push(`Agent system prompt: ready`);
+        }
+        const context = contextLines.length > 0
+          ? `\n\nCurrent session context:\n${contextLines.join('\n')}`
+          : '';
+
         const response = await chrome.runtime.sendMessage({
           type: 'CHAT',
-          data: { message: userMessage },
+          data: { message: userMessage, context, history },
         });
         if (response?.ok) {
           addMessage({ role: 'assistant', content: response.reply });

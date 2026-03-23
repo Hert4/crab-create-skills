@@ -1,0 +1,302 @@
+import { useState } from 'react';
+import { useCompilationStore } from '@/stores/compilationStore';
+import { EmptyState } from '@/components/shared/EmptyState';
+import { Bot, Copy, Check, Download } from 'lucide-react';
+
+function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <button
+      onClick={handleCopy}
+      title={label}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 4,
+        padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 500,
+        border: '1px solid var(--crab-border)',
+        background: copied ? 'var(--crab-accent-light)' : 'var(--crab-bg-hover)',
+        color: copied ? 'var(--crab-accent)' : 'var(--crab-text-secondary)',
+        cursor: 'pointer', transition: 'all 0.15s',
+      }}
+    >
+      {copied ? <Check style={{ width: 11, height: 11 }} /> : <Copy style={{ width: 11, height: 11 }} />}
+      {copied ? 'Copied!' : label}
+    </button>
+  );
+}
+
+function SectionBox({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <div style={{
+      background: 'var(--crab-surface-raised)',
+      border: '1px solid var(--crab-border)',
+      borderRadius: 12,
+      overflow: 'hidden',
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '8px 12px',
+        borderBottom: '1px solid var(--crab-border)',
+        background: 'var(--crab-surface-overlay)',
+      }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--crab-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          {title}
+        </span>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** Download a single text file via chrome.downloads */
+function downloadText(filename: string, content: string) {
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Export all agent files as individual downloads (no JSZip needed) */
+function exportAll(agentTemplate: NonNullable<ReturnType<typeof useCompilationStore.getState>['agentTemplate']>) {
+  const slug = agentTemplate.metadata.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  const { tools, systemPrompt, skillContent, config, metadata } = agentTemplate;
+
+  // system_prompt.txt
+  downloadText(`${slug}-system_prompt.txt`, systemPrompt);
+
+  // SKILL.md
+  downloadText(`${slug}-SKILL.md`, skillContent);
+
+  // tools_openai.json
+  if (tools.openai.length > 0) {
+    downloadText(`${slug}-tools_openai.json`, JSON.stringify(tools.openai, null, 2));
+  }
+
+  // tools_anthropic.json
+  if (tools.anthropic.length > 0) {
+    downloadText(`${slug}-tools_anthropic.json`, JSON.stringify(tools.anthropic, null, 2));
+  }
+
+  // tools_openapi.yaml
+  if (tools.tools.length > 0) {
+    downloadText(`${slug}-tools_openapi.yaml`, tools.openapi);
+  }
+
+  // config.json
+  downloadText(`${slug}-config.json`, JSON.stringify({ metadata, config }, null, 2));
+
+  // README.md
+  const readme = `# ${metadata.name}
+
+**Domain:** ${metadata.domain}
+**Version:** ${metadata.version}
+**Description:** ${metadata.description}
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| \`system_prompt.txt\` | System prompt — paste into your agent configuration |
+| \`SKILL.md\` | Claude skill definition — load via Claude Code or compatible tool |
+| \`tools_openai.json\` | Tool schemas for OpenAI-compatible APIs |
+| \`tools_anthropic.json\` | Tool schemas for Anthropic Claude API |
+| \`tools_openapi.yaml\` | OpenAPI 3.0 spec — import into API gateways or MCP servers |
+| \`config.json\` | Recommended model configuration |
+
+## Deployment
+
+### With OpenAI
+\`\`\`js
+const response = await openai.chat.completions.create({
+  model: "${config.model}",
+  temperature: ${config.temperature},
+  max_tokens: ${config.max_tokens},
+  messages: [
+    { role: "system", content: fs.readFileSync("system_prompt.txt", "utf8") },
+    ...conversationHistory
+  ],
+  tools: JSON.parse(fs.readFileSync("tools_openai.json", "utf8")),
+  tool_choice: "auto"
+});
+\`\`\`
+
+### With Anthropic
+\`\`\`js
+const response = await anthropic.messages.create({
+  model: "claude-opus-4-5",
+  temperature: ${config.temperature},
+  max_tokens: ${config.max_tokens},
+  system: fs.readFileSync("system_prompt.txt", "utf8"),
+  messages: conversationHistory,
+  tools: JSON.parse(fs.readFileSync("tools_anthropic.json", "utf8"))
+});
+\`\`\`
+
+## Configuration
+
+- **Model:** \`${config.model}\`
+- **Temperature:** ${config.temperature}
+- **Max tokens:** ${config.max_tokens}
+- **Memory:** ${config.memory.type} (max ${config.memory.max_turns} turns)
+
+Generated by [Crab Create Skills](https://github.com/your-repo/skill-compiler-ext)
+`;
+  downloadText(`${slug}-README.md`, readme);
+}
+
+export function AgentPanel() {
+  const agentTemplate = useCompilationStore(s => s.agentTemplate);
+  const [exporting, setExporting] = useState(false);
+
+  if (!agentTemplate) {
+    return (
+      <EmptyState
+        icon={Bot}
+        title="No Agent Template Yet"
+        description="Run a compilation to generate a complete agent template with system prompt, tools, and config."
+      />
+    );
+  }
+
+  const { metadata, systemPrompt, config, tools } = agentTemplate;
+
+  const handleExport = () => {
+    setExporting(true);
+    try {
+      exportAll(agentTemplate);
+    } finally {
+      setTimeout(() => setExporting(false), 800);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      {/* Header */}
+      <div style={{
+        padding: '10px 12px 8px',
+        borderBottom: '1px solid var(--crab-border)',
+        flexShrink: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Bot style={{ width: 14, height: 14, color: 'var(--crab-accent)' }} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--crab-text)' }}>{metadata.name}</span>
+          <span style={{
+            fontSize: 10, padding: '1px 6px', borderRadius: 10,
+            background: 'var(--crab-accent-light)', color: 'var(--crab-accent)',
+            fontWeight: 600,
+          }}>
+            v{metadata.version}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--crab-text-muted)' }}>{metadata.domain}</span>
+        </div>
+        <button
+          onClick={handleExport}
+          disabled={exporting}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 5,
+            padding: '5px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+            border: '1px solid var(--crab-accent)',
+            background: 'var(--crab-accent-light)',
+            color: 'var(--crab-accent)',
+            cursor: exporting ? 'wait' : 'pointer',
+            transition: 'all 0.15s',
+            opacity: exporting ? 0.7 : 1,
+          }}
+          onMouseEnter={e => {
+            if (!exporting) {
+              (e.currentTarget as HTMLButtonElement).style.background = 'var(--crab-accent)';
+              (e.currentTarget as HTMLButtonElement).style.color = '#fff';
+            }
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLButtonElement).style.background = 'var(--crab-accent-light)';
+            (e.currentTarget as HTMLButtonElement).style.color = 'var(--crab-accent)';
+          }}
+        >
+          <Download style={{ width: 12, height: 12 }} />
+          {exporting ? 'Exporting…' : 'Export All'}
+        </button>
+      </div>
+
+      {/* Scrollable content */}
+      <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+        {/* Config */}
+        <SectionBox title="Config">
+          <div style={{ padding: '10px 12px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px' }}>
+            {[
+              ['Model', config.model || '—'],
+              ['Temperature', String(config.temperature)],
+              ['Max tokens', String(config.max_tokens)],
+              ['Top P', String(config.top_p)],
+              ['Memory', config.memory.type],
+              ['Max turns', String(config.memory.max_turns)],
+            ].map(([label, value]) => (
+              <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <span style={{ fontSize: 10, color: 'var(--crab-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{label}</span>
+                <span style={{ fontSize: 12, color: 'var(--crab-text)', fontWeight: 500 }}>{value}</span>
+              </div>
+            ))}
+          </div>
+        </SectionBox>
+
+        {/* System Prompt */}
+        <SectionBox title="System Prompt" action={<CopyButton text={systemPrompt} />}>
+          <pre style={{
+            margin: 0, padding: '10px 12px',
+            fontSize: 11.5, lineHeight: 1.7,
+            color: 'var(--crab-text-secondary)',
+            fontFamily: "'DM Sans', sans-serif",
+            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            maxHeight: 320, overflowY: 'auto',
+          }}>
+            {systemPrompt}
+          </pre>
+        </SectionBox>
+
+        {/* Tools summary */}
+        {tools.tools.length > 0 && (
+          <SectionBox title={`Tools (${tools.tools.length})`}>
+            <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {tools.tools.map(tool => (
+                <div key={tool.name} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                  <code style={{
+                    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                    color: 'var(--crab-accent)', fontSize: 11, fontWeight: 600, minWidth: 120,
+                  }}>
+                    {tool.name}
+                  </code>
+                  <span style={{ color: 'var(--crab-text-secondary)', flex: 1, fontSize: 11 }}>{tool.description}</span>
+                </div>
+              ))}
+              <p style={{ fontSize: 11, color: 'var(--crab-text-muted)', margin: '4px 0 0', fontStyle: 'italic' }}>
+                See the Tools tab for full schemas.
+              </p>
+            </div>
+          </SectionBox>
+        )}
+
+        {/* Export hint */}
+        <div style={{
+          background: 'var(--crab-surface-overlay)',
+          border: '1px solid var(--crab-border)',
+          borderRadius: 10, padding: '8px 12px',
+          fontSize: 11, color: 'var(--crab-text-muted)', lineHeight: 1.6,
+        }}>
+          "Export All" downloads: <code>system_prompt.txt</code>, <code>SKILL.md</code>,
+          {tools.tools.length > 0 && <> <code>tools_openai.json</code>, <code>tools_anthropic.json</code>, <code>tools_openapi.yaml</code>,</>}
+          {' '}<code>config.json</code>, and <code>README.md</code> with deployment instructions.
+        </div>
+      </div>
+    </div>
+  );
+}

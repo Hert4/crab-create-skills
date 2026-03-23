@@ -1,27 +1,44 @@
+import { useEffect, useState } from 'react';
 import { useCompilationStore } from '@/stores/compilationStore';
 import { useCompilation } from '@/hooks/useCompilation';
 import type { Phase } from '@/lib/types';
 
 const PHASE_LABELS: Partial<Record<Phase, string>> = {
-  ingest:   'Reading files',
-  extract:  'Extracting logic',
-  assemble: 'Building skill',
-  evaluate: 'Generating evals',
+  ingest:   'Reading',
+  extract:  'Extracting',
+  assemble: 'Building',
+  evaluate: 'Evaluating',
   validate: 'Validating',
+  agent:    'Agent',
   done:     'Complete',
   error:    'Error',
 };
 
-const PHASE_ORDER: Phase[] = ['ingest', 'extract', 'assemble', 'evaluate', 'validate'];
+const PHASE_ORDER: Phase[] = ['ingest', 'extract', 'assemble', 'evaluate', 'validate', 'agent'];
 
 export function ProgressStepper() {
   const { phase, progress, detail } = useCompilationStore();
   const { cancelCompilation } = useCompilation();
+  const [visible, setVisible] = useState(true);
+
   const isDone = phase === 'done';
   const isError = phase === 'error';
   const isRunning = !isDone && !isError && phase !== 'idle';
   const currentIdx = PHASE_ORDER.indexOf(phase as Phase);
   const label = PHASE_LABELS[phase] ?? phase;
+
+  // Auto-hide 3s after done
+  useEffect(() => {
+    if (isDone) {
+      setVisible(true);
+      const t = setTimeout(() => setVisible(false), 3000);
+      return () => clearTimeout(t);
+    } else {
+      setVisible(true);
+    }
+  }, [isDone, phase]);
+
+  if (!visible) return null;
 
   return (
     <div style={{

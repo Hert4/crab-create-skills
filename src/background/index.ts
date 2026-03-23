@@ -1,5 +1,5 @@
 import { compile, cancelCompilation } from './pipeline';
-import { chatFast } from './llm';
+import { chatWithHistory } from './llm';
 import type { Settings } from '../sidepanel/lib/types';
 
 // Open side panel on icon click
@@ -56,29 +56,32 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     case 'CHAT':
       (async () => {
         try {
-          const reply = await chatFast({
+          const context: string = msg.data.context || '';
+          const history: { role: 'user' | 'assistant'; content: string }[] = msg.data.history || [];
+
+          // Ensure history ends with the current user message
+          const lastMsg = history[history.length - 1];
+          const fullHistory = (lastMsg?.role === 'user' && lastMsg?.content === msg.data.message)
+            ? history
+            : [...history, { role: 'user' as const, content: msg.data.message }];
+
+          const reply = await chatWithHistory({
             system: `You are Crab, a friendly assistant specialized in helping users create Agent Skills.
 
-Your role: Have helpful conversations about skill creation. Do NOT create the skill yourself.
+Your role: Have helpful conversations about skill creation, answer questions about the current compilation result, and guide users.${context ? `\n\n${context}` : ''}
 
 You can:
-- Answer questions about what Agent Skills are
-- Guide users on how to describe their process
-- Explain what files to upload (PDF, DOCX, images of workflows)
+- Explain the current skill, tools, agent template that was just compiled
+- Answer questions about what was detected (tools, steps, constraints)
+- Guide users to the right tab (Preview, Tools, Agent, Evals) to see results
+- Explain WHY no tools were detected if asked (pure reasoning skills don't need external APIs)
+- Help users understand what to do next with the output
 - Chat naturally in Vietnamese or English
-- Give feedback on user's business process descriptions
-- Ask clarifying questions to help users prepare good input
 
-You cannot:
-- Actually compile or create the skill (the pipeline does that)
-- Access external resources
-- Run code
+About tools: Tools are only generated when the workflow requires calling external systems (APIs, databases, services). A skill about creating DOCX files is a pure reasoning/generation task — the AI does it directly without calling any external API, so 0 tools is correct. If the user wants tools, they need a workflow that involves external systems (e.g. "fetch customer data from CRM, then create invoice").
 
-When the user is ready to create a skill, tell them:
-"Bạn có thể gõ mô tả quy trình hoặc upload file PDF/DOCX, tôi sẽ tự động tạo skill cho bạn!"
-
-Keep responses SHORT (2-4 sentences max). Be friendly and emoji-free.`,
-            user: msg.data.message,
+Keep responses SHORT and direct (2-4 sentences). Be friendly and emoji-free.`,
+            history: fullHistory,
             temperature: 0.7,
           });
           sendResponse({ ok: true, reply });
@@ -88,7 +91,35 @@ Keep responses SHORT (2-4 sentences max). Be friendly and emoji-free.`,
       })();
       return true; // async
 
-    case 'CANCEL':
+    case 'CLASSIFY':
+      (async () => {
+        try {
+          const msg_text: string = msg.data.message || '';
+          const reply = await chatWithHistory({
+            system: `You are a router. Classify the user's message as either COMPILE or CHAT.
+
+COMPILE = the user wants to CREATE something new: a skill, tool, function schema, agent, workflow, API definition, process document. Any request to build/generate/create/make something counts.
+CHAT = the user is asking a question, chatting, saying hello, asking for explanation, or doing anything that is NOT a create/build request.
+
+When in doubt, choose COMPILE — it's better to over-trigger than to miss a create request.
+
+Reply with ONLY a single JSON object: {"compile": true} or {"compile": false}`,
+            history: [{ role: 'user', content: msg_text }],
+            temperature: 0,
+          });
+          try {
+            const parsed = JSON.parse(reply.trim().replace(/^```json?\n?/, '').replace(/\n?```$/, ''));
+            sendResponse({ compile: parsed.compile === true });
+          } catch {
+            sendResponse({ compile: true }); // default to compile on parse failure
+          }
+        } catch {
+          sendResponse({ compile: true }); // default to compile on error
+        }
+      })();
+      return true; // async
+
+
       cancelCompilation();
       stopKeepAlive();
       sendResponse({ ok: true });
