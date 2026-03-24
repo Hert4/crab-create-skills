@@ -7,13 +7,15 @@ import { generateEvals } from './phases/evaluate';
 import { validate } from './phases/validate';
 import { assembleAgent } from './phases/agent-assembly';
 import type { ParsedFile, CompilationState, SkillOutput, AgentTemplate } from '../sidepanel/lib/types';
+import { PHASE_ANIMATION } from '../sidepanel/lib/animations';
 
 let cancelled = false;
 
 export function cancelCompilation() { cancelled = true; }
 
 function sendProgress(phase: string, detail: string, progress: number) {
-  chrome.runtime.sendMessage({ type: 'PROGRESS', phase, detail, progress }).catch(() => {});
+  const animation = PHASE_ANIMATION[phase as keyof typeof PHASE_ANIMATION] ?? 'clawd-idle-living';
+  chrome.runtime.sendMessage({ type: 'PROGRESS', phase, detail, progress, animation }).catch(() => {});
 }
 
 function sendMsg(msg: Record<string, unknown>) {
@@ -108,6 +110,7 @@ export async function compile(files: ParsedFile[], userMessage: string): Promise
       phase: 'done',
       progress: 100,
       detail: `Score: ${(validation.bestScore * 100).toFixed(0)}% (+${(validation.improvementOverBaseline * 100).toFixed(0)}% vs baseline)`,
+      animation: PHASE_ANIMATION.done,
       skill,
       evals,
       validation,
@@ -124,7 +127,7 @@ export async function compile(files: ParsedFile[], userMessage: string): Promise
     const error = err instanceof Error ? err.message : String(err);
     console.error('[pipeline] ERROR:', err);
     sendMsg({ type: 'ERROR', error });
-    return { phase: 'error', progress: 0, detail: '', skill: null, evals: null, validation: null, agentTemplate: null, error };
+    return { phase: 'error', progress: 0, detail: '', animation: PHASE_ANIMATION.error, skill: null, evals: null, validation: null, agentTemplate: null, error };
   }
 }
 

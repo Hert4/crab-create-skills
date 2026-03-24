@@ -7,14 +7,14 @@ import type { ToSidepanel } from '@/lib/types';
  * Listen for messages from background.ts and update stores.
  */
 export function useBgMessage() {
-  const { setPhase, setSkill, setEvals, setValidation, setAgentTemplate, setError } = useCompilationStore();
+  const { setPhase, setAnimation, setSkill, setEvals, setValidation, setAgentTemplate, setError } = useCompilationStore();
   const { addMessage, updateLastAssistant, finalizeStreaming, setProcessing } = useChatStore();
 
   useEffect(() => {
     const handler = (msg: ToSidepanel) => {
       switch (msg.type) {
         case 'PROGRESS':
-          setPhase(msg.phase, msg.detail, msg.progress);
+          setPhase(msg.phase, msg.detail, msg.progress, msg.animation);
           break;
         case 'CHAT_STREAM':
           updateLastAssistant(msg.delta);

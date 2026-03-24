@@ -5,6 +5,7 @@ import { GRADER_PROMPT } from '../prompts/grader';
 import { PROMPT_IMPROVER_PROMPT } from '../prompts/prompt-improver';
 import { saveToHistory } from '../pipeline';
 import type { EvalSet, FunctionalEval, ValidationResult, IterationResult, GradeResult, CompareResult, SkillOutput } from '../../sidepanel/lib/types';
+import { PHASE_ANIMATION } from '../../sidepanel/lib/animations';
 
 let cancelled = false;
 
@@ -196,6 +197,7 @@ export async function optimizePipeline(originalPrompt: string): Promise<void> {
       phase: 'done',
       progress: 100,
       detail: `Score: ${(validation.bestScore * 100).toFixed(0)}% (+${(validation.improvementOverBaseline * 100).toFixed(0)}% vs original)`,
+      animation: PHASE_ANIMATION.done,
       skill,
       evals,
       validation,

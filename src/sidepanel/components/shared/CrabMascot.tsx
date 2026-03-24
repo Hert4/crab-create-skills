@@ -1,196 +1,255 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useCompilationStore } from '@/stores/compilationStore';
-import type { Phase } from '@/lib/types';
+import { useChatStore } from '@/stores/chatStore';
+import { PHASE_ANIMATION, getAnimationUrl, type AnimationId } from '@/lib/animations';
 
-// ── Build ASCII crab frame ──────────────────────────────────────────
-function buildCrabFrame(options: { offset?: number; eyes?: string; legs?: string } = {}) {
-  const { offset = 0, eyes = 'neutral', legs = 'right' } = options;
-  const topPad  = ' '.repeat(4 + Math.max(0, offset));
-  const bodyPad = ' '.repeat(2 + Math.max(0, offset));
-  const legPad  = ' '.repeat(5 + Math.max(0, offset));
-
-  const eyeMap: Record<string, string> = {
-    neutral: '\u258C\u2590\u2588\u2588\u258C\u2590',
-    blink:   '\u2580\u2580\u2588\u2588\u2580\u2580',
-    happy:   '\u259D\u2598\u2588\u2588\u259D\u2598',
-    curious: '\u258C\u258C\u2588\u2588\u2590\u2590',
-    angry:   '\u2590\u258C\u2588\u2588\u2590\u258C',
-    tired:   '\u2594\u2594\u2588\u2588\u2594\u2594',
-    down:    '\u2584\u2584\u2588\u2588\u2584\u2584',
-  };
-  const legMap: Record<string, string> = {
-    right:      '\u2590\u2590  \u258C\u258C',
-    left:       '\u258C\u258C  \u2590\u2590',
-    wide:       '\u2590\u2590    \u258C\u258C',
-    tucked:     ' \u2590\u2590\u258C\u258C',
-    'type-r':   '\u258C\u258C  \u2590\u2588',
-    'type-l':   '\u2588\u2590  \u258C\u258C',
-    'type-both':'\u2588\u2590  \u2590\u2588',
-  };
-  const eyePattern = eyeMap[eyes] ?? eyeMap.neutral;
-  const legPattern = legMap[legs] ?? legMap.right;
-  return [
-    `${topPad}\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588`,
-    `${topPad}\u2588${eyePattern}\u2588`,
-    `${bodyPad}\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588`,
-    `${topPad}\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588`,
-    `${legPad}${legPattern}`,
-  ].join('\n');
-}
-
-// ── Mood states ─────────────────────────────────────────────────────
-type MoodFrame = { art: string; bubble: string };
-const STATES: Record<string, MoodFrame[]> = {
-  neutral:  [
-    { art: buildCrabFrame({ offset: 0, eyes: 'neutral', legs: 'right' }), bubble: '' },
-    { art: buildCrabFrame({ offset: 1, eyes: 'blink',   legs: 'left'  }), bubble: '' },
-  ],
-  thinking: [
-    { art: buildCrabFrame({ offset: 0, eyes: 'neutral', legs: 'right'  }), bubble: 'thinking...' },
-    { art: buildCrabFrame({ offset: 1, eyes: 'blink',   legs: 'left'   }), bubble: 'reading...' },
-    { art: buildCrabFrame({ offset: 0, eyes: 'curious', legs: 'type-r' }), bubble: 'building...' },
-  ],
-  happy:    [
-    { art: buildCrabFrame({ offset: 0, eyes: 'happy', legs: 'wide'  }), bubble: 'done!' },
-    { art: buildCrabFrame({ offset: 1, eyes: 'happy', legs: 'right' }), bubble: 'nice!' },
-  ],
-  excited:  [
-    { art: buildCrabFrame({ offset: 0, eyes: 'happy',   legs: 'wide'  }), bubble: 'lets go!' },
-    { art: buildCrabFrame({ offset: 1, eyes: 'curious', legs: 'wide'  }), bubble: 'all green!' },
-    { art: buildCrabFrame({ offset: 0, eyes: 'happy',   legs: 'left'  }), bubble: 'more!' },
-  ],
-  sad:      [
-    { art: buildCrabFrame({ offset: 0, eyes: 'tired', legs: 'tucked' }), bubble: 'oops...' },
-    { art: buildCrabFrame({ offset: 1, eyes: 'tired', legs: 'tucked' }), bubble: 'retry?' },
-  ],
+// ── Speech bubble messages per animation ────────────────────────────
+const BUBBLES: Partial<Record<AnimationId, string[]>> = {
+  'clawd-working-typing':    ['typing...', 'reading...'],
+  'clawd-working-thinking':  ['thinking...', 'hmm...'],
+  'clawd-working-building':  ['building...', 'assembling...'],
+  'clawd-working-juggling':  ['evaluating...', 'testing...'],
+  'clawd-working-debugger':  ['validating...', 'checking...'],
+  'clawd-working-conducting':['conducting...', 'orchestrating...'],
+  'clawd-working-wizard':    ['optimizing...', 'refining...'],
+  'clawd-happy':             ['done!', 'nice!', 'lets go!'],
+  'clawd-disconnected':      ['oops...', 'retry?'],
+  'clawd-dizzy':             ['uhh...', 'help...'],
+  'clawd-sleeping':          ['zzz...', 'sleepy...'],
+  'clawd-crab-walking':      ['stretching~', 'walking~'],
+  'clawd-notification':      ['hey!', 'psst!'],
+  'clawd-going-away':        ['brb~', 'later~'],
+  'clawd-working-sweeping':  ['cleaning~', 'tidy up~'],
+  'clawd-working-beacon':    ['looking...', 'scanning...'],
 };
 
-function phaseToMood(phase: Phase): keyof typeof STATES {
-  if (phase === 'done') return 'excited';
-  if (phase === 'error') return 'sad';
-  if (['ingest','extract','assemble','evaluate','validate'].includes(phase)) return 'thinking';
-  return 'neutral';
+// ── Idle animation pool — cycled when no activity ────────────────────
+const IDLE_ANIMATIONS: { id: AnimationId; weight: number; minDuration: number }[] = [
+  { id: 'clawd-idle-living',       weight: 4, minDuration: 16000 }, // main idle, longer
+  { id: 'clawd-sleeping',          weight: 2, minDuration: 12000 },
+  { id: 'clawd-crab-walking',      weight: 2, minDuration: 8000  },
+  { id: 'clawd-notification',      weight: 1, minDuration: 6000  },
+  { id: 'clawd-working-sweeping',  weight: 1, minDuration: 8000  },
+  { id: 'clawd-working-beacon',    weight: 1, minDuration: 8000  },
+  { id: 'clawd-going-away',        weight: 1, minDuration: 8000  },
+  { id: 'clawd-mini-clawd',        weight: 1, minDuration: 6000  },
+];
+
+function pickRandomIdle(exclude?: AnimationId): { id: AnimationId; minDuration: number } {
+  const pool = IDLE_ANIMATIONS.filter(a => a.id !== exclude);
+  const totalWeight = pool.reduce((s, a) => s + a.weight, 0);
+  let r = Math.random() * totalWeight;
+  for (const a of pool) {
+    r -= a.weight;
+    if (r <= 0) return a;
+  }
+  return pool[pool.length - 1];
+}
+
+// ── Crossfade SVG — smooth transition between two stacked <img> ─────
+function CrossfadeSvg({ src }: { src: string }) {
+  const [slots, setSlots] = useState([src, '']);
+  const [active, setActive] = useState(0);
+
+  useEffect(() => {
+    if (src === slots[active]) return;
+    const next = active === 0 ? 1 : 0;
+    setSlots(prev => {
+      const copy = [...prev];
+      copy[next] = src;
+      return copy;
+    });
+    // Wait one frame so the new img src is painted before opacity transition
+    requestAnimationFrame(() => setActive(next));
+  }, [src]);
+
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      {slots.map((s, i) => s && (
+        <img
+          key={i}
+          src={s}
+          alt=""
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'contain',
+            objectPosition: 'center bottom',
+            opacity: i === active ? 1 : 0,
+            transition: 'opacity 0.4s ease-in-out',
+            pointerEvents: 'none',
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ── Derive current animation from compilation phase + chat state ─────
+// When truly idle, cycle through random idle animations for variety.
+function useActiveAnimation(): AnimationId {
+  const phase = useCompilationStore(s => s.phase);
+  const storeAnimation = useCompilationStore(s => s.animation) as AnimationId;
+  const isProcessing = useChatStore(s => s.isProcessing);
+  const [idleAnim, setIdleAnim] = useState<AnimationId>('clawd-idle-living');
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isIdle = phase === 'idle' && !isProcessing;
+
+  const scheduleNext = useCallback((current: AnimationId) => {
+    const next = pickRandomIdle(current);
+    idleTimerRef.current = setTimeout(() => {
+      setIdleAnim(next.id);
+      scheduleNext(next.id);
+    }, next.minDuration + Math.random() * 4000); // add some randomness
+  }, []);
+
+  useEffect(() => {
+    if (isIdle) {
+      // Start cycling after an initial delay
+      const first = pickRandomIdle(idleAnim);
+      idleTimerRef.current = setTimeout(() => {
+        setIdleAnim(first.id);
+        scheduleNext(first.id);
+      }, 10000 + Math.random() * 5000); // first switch after 10-15s of idle
+    } else {
+      // Not idle — clear timer, reset to default
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+      setIdleAnim('clawd-idle-living');
+    }
+    return () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    };
+  }, [isIdle]);
+
+  if (phase !== 'idle' && phase !== 'error') return PHASE_ANIMATION[phase];
+  if (phase === 'error') return 'clawd-disconnected';
+  if (isProcessing) return 'clawd-working-thinking';
+  // If model set a specific animation (from chat response), show it briefly
+  // then idle cycling takes over
+  if (storeAnimation !== 'clawd-idle-living') return storeAnimation;
+  return idleAnim;
 }
 
 // ── Mini mascot — bottom-right corner ──────────────────────────────
 export function CrabMascot() {
-  const phase = useCompilationStore(s => s.phase);
-  const mood = phaseToMood(phase);
-  const frames = STATES[mood] ?? STATES.neutral;
-  const [frameIdx, setFrameIdx] = useState(0);
+  const animation = useActiveAnimation();
+  const src = getAnimationUrl(animation);
+  const msgs = BUBBLES[animation] ?? [];
+  const [msgIdx, setMsgIdx] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current);
-    setFrameIdx(0);
-    timerRef.current = setInterval(() => {
-      setFrameIdx(i => (i + 1) % frames.length);
-    }, mood === 'thinking' ? 800 : mood === 'excited' ? 600 : 1400);
+    setMsgIdx(0);
+    if (msgs.length > 0) {
+      timerRef.current = setInterval(
+        () => setMsgIdx(i => (i + 1) % msgs.length),
+        1200,
+      );
+    }
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [mood]);
+  }, [animation]);
 
-  const frame = frames[frameIdx] ?? frames[0];
-  const showBubble = !!frame.bubble;
+  const bubble = msgs[msgIdx] ?? '';
 
   return (
-    <div style={{
-      position: 'absolute',
-      bottom: 80,
-      right: 12,
-      opacity: 0.55,
-      transition: 'opacity 0.2s',
-      zIndex: 10,
-      cursor: 'default',
-    }}
-    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
-    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '0.55'; }}
+    <div
+      style={{
+        position: 'absolute',
+        bottom: 80,
+        right: 12,
+        opacity: 0.55,
+        transition: 'opacity 0.2s',
+        zIndex: 10,
+        cursor: 'default',
+        width: 120,
+        height: 120,
+      }}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '0.55'; }}
     >
-      {/* Speech bubble */}
-      {showBubble && (
-        <div style={{
+      {bubble && (
+        <div key={bubble} style={{
           position: 'absolute',
           bottom: '100%',
           right: 0,
-          marginBottom: 4,
+          marginBottom: 6,
           background: 'var(--crab-bg)',
           border: '0.5px solid var(--crab-border)',
-          borderRadius: '8px 8px 2px 8px',
-          padding: '4px 8px',
-          fontSize: 10,
+          borderRadius: '10px 10px 2px 10px',
+          padding: '5px 10px',
+          fontSize: 12,
           whiteSpace: 'nowrap',
           color: 'var(--crab-text-secondary)',
           boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
           animation: 'bubblePop 0.2s cubic-bezier(0.34,1.56,0.64,1) both',
         }}>
-          {frame.bubble}
+          {bubble}
         </div>
       )}
-      {/* ASCII art */}
-      <pre style={{
-        fontFamily: "'JetBrains Mono', monospace",
-        fontSize: 8,
-        lineHeight: 1,
-        color: 'var(--crab-accent)',
-        userSelect: 'none',
-        margin: 0,
-      }}>
-        {frame.art}
-      </pre>
+      <CrossfadeSvg src={src} />
     </div>
   );
 }
 
 // ── Big mascot for welcome screen ───────────────────────────────────
+// ── Idle animation cycling for welcome screen ──────────────────────
+const WELCOME_ANIMATIONS: { id: AnimationId; duration: number }[] = [
+  { id: 'clawd-idle-living',       duration: 14000 },
+  { id: 'clawd-crab-walking',      duration: 8000  },
+  { id: 'clawd-idle-living',       duration: 10000 },
+  { id: 'clawd-notification',      duration: 6000  },
+  { id: 'clawd-idle-living',       duration: 12000 },
+  { id: 'clawd-sleeping',          duration: 10000 },
+  { id: 'clawd-idle-living',       duration: 10000 },
+  { id: 'clawd-working-sweeping',  duration: 8000  },
+  { id: 'clawd-idle-living',       duration: 12000 },
+  { id: 'clawd-going-away',        duration: 8000  },
+  { id: 'clawd-idle-living',       duration: 10000 },
+  { id: 'clawd-working-beacon',    duration: 8000  },
+];
+
 export function CrabMascotWelcome() {
-  const FRAMES = [
-    buildCrabFrame({ eyes: 'neutral', legs: 'right' }),
-    buildCrabFrame({ eyes: 'blink',   legs: 'right' }),
-    buildCrabFrame({ eyes: 'neutral', legs: 'left'  }),
-    buildCrabFrame({ eyes: 'blink',   legs: 'left'  }),
-  ];
   const [idx, setIdx] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const t = setInterval(() => setIdx(i => (i + 1) % FRAMES.length), 1000);
-    return () => clearInterval(t);
+    const schedule = (i: number) => {
+      timerRef.current = setTimeout(() => {
+        const next = (i + 1) % WELCOME_ANIMATIONS.length;
+        setIdx(next);
+        schedule(next);
+      }, WELCOME_ANIMATIONS[i].duration);
+    };
+    schedule(idx);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, []);
 
+  const anim = WELCOME_ANIMATIONS[idx];
+  const src = getAnimationUrl(anim.id);
+
   return (
-    <pre style={{
-      fontFamily: "'JetBrains Mono', monospace",
-      fontSize: 16,
-      lineHeight: 1.0,
-      letterSpacing: '-1px',
-      color: 'var(--crab-accent)',
-      userSelect: 'none',
-      textAlign: 'left',
+    <div style={{
+      width: 200,
+      height: 200,
       display: 'inline-block',
-      filter: 'drop-shadow(0 0 10px color-mix(in srgb, var(--crab-accent) 40%, transparent))',
-      margin: 0,
+      filter: 'drop-shadow(0 0 14px color-mix(in srgb, var(--crab-accent) 40%, transparent))',
     }}>
-      {FRAMES[idx]}
-    </pre>
+      <CrossfadeSvg src={src} />
+    </div>
   );
 }
 
-// ── Tiny ASCII logo for header ───────────────────────────────────────
+// ── Tiny logo for header ───────────────────────────────────────────
 export function CrabLogoAscii() {
-  // 3-line ultra mini crab that fits in header
-  const mini = `${buildCrabFrame({ eyes: 'neutral', legs: 'right' })}`;
+  const src = getAnimationUrl('clawd-static-base');
   return (
-    <pre style={{
-      fontFamily: "'JetBrains Mono', monospace",
-      fontSize: 5,
-      lineHeight: 1,
-      color: 'var(--crab-accent)',
-      userSelect: 'none',
-      margin: 0,
-      minWidth: 40,
-      minHeight: 25,
-      display: 'flex',
-      alignItems: 'center',
-    }}>
-      {mini}
-    </pre>
+    <div style={{ width: 28, height: 22, display: 'flex', alignItems: 'center' }}>
+      <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+    </div>
   );
 }

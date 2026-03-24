@@ -2,6 +2,7 @@ import { compile, cancelCompilation } from './pipeline';
 import { chatWithHistory } from './llm';
 import { optimizePipeline, cancelOptimize } from './phases/prompt-optimizer';
 import type { Settings } from '../sidepanel/lib/types';
+import { ChatResponseSchema, ANIMATION_PROMPT_LIST } from '../sidepanel/lib/animations';
 
 // Open side panel on icon click
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
@@ -68,7 +69,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
             ? history
             : [...history, { role: 'user' as const, content: msg.data.message }];
 
-          const reply = await chatWithHistory({
+          const raw = await chatWithHistory({
             system: `You are Crab, a friendly assistant specialized in helping users create Agent Skills.
 
 Your role: Have helpful conversations about skill creation, answer questions about the current compilation result, and guide users.${context ? `\n\n${context}` : ''}
@@ -83,11 +84,34 @@ You can:
 
 About tools: Tools are only generated when the workflow requires calling external systems (APIs, databases, services). A skill about creating DOCX files is a pure reasoning/generation task — the AI does it directly without calling any external API, so 0 tools is correct. If the user wants tools, they need a workflow that involves external systems (e.g. "fetch customer data from CRM, then create invoice").
 
-Keep responses SHORT and direct (2-4 sentences). Be friendly and emoji-free.`,
+Keep responses SHORT and direct (2-4 sentences). Be friendly and emoji-free.
+
+IMPORTANT: Reply with a JSON object containing "message" and "animation" fields.
+- "message": your text response
+- "animation": one of the animation IDs below that best matches your mood/tone
+
+Available animations:
+${ANIMATION_PROMPT_LIST}
+
+Example: {"message": "The skill has 5 steps and 3 rules.", "animation": "clawd-idle-living"}`,
             history: fullHistory,
             temperature: 0.7,
           });
-          sendResponse({ ok: true, reply });
+
+          // Parse structured response with zod, fallback to plain text
+          let reply: string;
+          let animation: string | undefined;
+          try {
+            const jsonStr = raw.trim().replace(/^```json?\n?/, '').replace(/\n?```$/, '');
+            const parsed = ChatResponseSchema.parse(JSON.parse(jsonStr));
+            reply = parsed.message;
+            animation = parsed.animation;
+          } catch {
+            reply = raw;
+            animation = undefined;
+          }
+
+          sendResponse({ ok: true, reply, animation });
         } catch (e: unknown) {
           sendResponse({ ok: false, error: e instanceof Error ? e.message : 'Unknown error' });
         }

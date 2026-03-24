@@ -1,10 +1,11 @@
 import { useChatStore } from '@/stores/chatStore';
 import { useCompilationStore } from '@/stores/compilationStore';
 import { useSettings } from '@/hooks/useSettings';
+import type { AnimationId } from '@/lib/animations';
 
 export function useCompilation() {
   const { addMessage, attachedFiles, clearFiles, setProcessing, messages } = useChatStore();
-  const { reset, setError, setPhase, setPipelineMode } = useCompilationStore();
+  const { reset, setError, setPhase, setAnimation, setPipelineMode } = useCompilationStore();
   // Use selectors for reactive values
   const skill = useCompilationStore(s => s.skill);
   const agentTemplate = useCompilationStore(s => s.agentTemplate);
@@ -115,6 +116,7 @@ export function useCompilation() {
         });
         if (response?.ok) {
           addMessage({ role: 'assistant', content: response.reply });
+          if (response.animation) setAnimation(response.animation as AnimationId);
         } else {
           const errMsg = response?.error || 'Unknown error';
           setError(errMsg);

@@ -53,6 +53,7 @@ export interface CompilationState {
   phase: Phase;
   progress: number;
   detail: string;
+  animation: string;
   skill: SkillOutput | null;
   evals: EvalSet | null;
   validation: ValidationResult | null;
@@ -255,7 +256,7 @@ export type ToBackground =
 
 // Background -> Sidepanel
 export type ToSidepanel =
-  | { type: 'PROGRESS'; phase: Phase; detail: string; progress: number }
+  | { type: 'PROGRESS'; phase: Phase; detail: string; progress: number; animation?: string }
   | { type: 'CHAT_STREAM'; delta: string }
   | { type: 'SKILL_READY'; skill: SkillOutput }
   | { type: 'EVALS_READY'; evals: EvalSet }
