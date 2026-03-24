@@ -9,6 +9,7 @@ const DEFAULT_SETTINGS: Settings = {
   modelTarget: '',
   maxIterations: 3,
   minScore: 0.85,
+  evalCount: 6,
   language: 'vi',
 };
 
@@ -34,12 +35,52 @@ function isAnthropic(s: Settings): boolean {
 }
 
 /**
- * Some newer OpenAI models (o-series, gpt-5.x) require max_completion_tokens
- * instead of the legacy max_tokens parameter.
+ * Returns true for models that use the newer OpenAI "reasoning" API:
+ * - o-series (o1, o3, o4-mini…)
+ * - gpt-5.x and later (gpt-5, gpt-5.2, gpt-5-turbo…)
+ * These models require max_completion_tokens instead of max_tokens,
+ * and do NOT accept a temperature parameter.
+ */
+function isReasoningModel(model: string): boolean {
+  return /^(o\d|gpt-5)/i.test(model);
+}
+
+/**
+ * Build the token-limit param for OpenAI-compatible calls.
+ * Reasoning models use max_completion_tokens; legacy models use max_tokens.
  */
 function maxTokensParam(model: string, value: number): Record<string, number> {
-  const usesCompletionTokens = /^(o\d|gpt-5)/i.test(model);
-  return usesCompletionTokens ? { max_completion_tokens: value } : { max_tokens: value };
+  return isReasoningModel(model) ? { max_completion_tokens: value } : { max_tokens: value };
+}
+
+/**
+ * Build the temperature param for OpenAI-compatible calls.
+ * Reasoning models (o-series, gpt-5.x) do not accept temperature — omit it.
+ */
+function temperatureParam(model: string, value: number): Record<string, number> {
+  return isReasoningModel(model) ? {} : { temperature: value };
+}
+
+/**
+ * Retry with exponential backoff for transient errors (429, 500, 502, 503, 504).
+ */
+const RETRYABLE = new Set([429, 500, 502, 503, 504]);
+const MAX_RETRIES = 3;
+
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  let lastErr: Error | null = null;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err));
+      const status = Number(lastErr.message.match(/API (\d+)/)?.[1] || 0);
+      if (!RETRYABLE.has(status) || attempt === MAX_RETRIES) throw lastErr;
+      const delay = Math.min(1000 * 2 ** attempt, 8000); // 1s, 2s, 4s, 8s
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw lastErr!;
 }
 
 /**
@@ -51,51 +92,53 @@ async function fetchChat(opts: {
   model: string;
   temperature?: number;
 }): Promise<string> {
-  const s = await getSettings();
+  return withRetry(async () => {
+    const s = await getSettings();
 
-  if (isAnthropic(s)) {
-    // Anthropic Messages API
-    const baseUrl = s.baseUrl || 'https://api.anthropic.com';
-    const res = await fetch(`${baseUrl}/v1/messages`, {
+    if (isAnthropic(s)) {
+      // Anthropic Messages API
+      const baseUrl = s.baseUrl || 'https://api.anthropic.com';
+      const res = await fetch(`${baseUrl}/v1/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': s.apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: opts.model,
+          system: opts.system,
+          messages: [{ role: 'user', content: opts.user }],
+          temperature: opts.temperature ?? 0.3,
+          max_tokens: 4096,
+        }),
+      });
+      if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+      const data = await res.json();
+      return data.content?.[0]?.text || '';
+    }
+
+    // OpenAI-compatible
+    const res = await fetch(`${s.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': s.apiKey,
-        'anthropic-version': '2023-06-01',
+        ...(s.apiKey ? { Authorization: `Bearer ${s.apiKey}` } : {}),
       },
       body: JSON.stringify({
         model: opts.model,
-        system: opts.system,
-        messages: [{ role: 'user', content: opts.user }],
-        temperature: opts.temperature ?? 0.3,
-        max_tokens: 4096,
+        messages: [
+          { role: 'system', content: opts.system },
+          { role: 'user', content: opts.user },
+        ],
+        ...temperatureParam(opts.model, opts.temperature ?? 0.3),
+        ...maxTokensParam(opts.model, 4096),
       }),
     });
     if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
     const data = await res.json();
-    return data.content?.[0]?.text || '';
-  }
-
-  // OpenAI-compatible
-  const res = await fetch(`${s.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(s.apiKey ? { Authorization: `Bearer ${s.apiKey}` } : {}),
-    },
-    body: JSON.stringify({
-      model: opts.model,
-      messages: [
-        { role: 'system', content: opts.system },
-        { role: 'user', content: opts.user },
-      ],
-      temperature: opts.temperature ?? 0.3,
-      ...maxTokensParam(opts.model, 4096),
-    }),
+    return data.choices?.[0]?.message?.content || '';
   });
-  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || '';
 }
 
 /**
@@ -106,50 +149,52 @@ export async function chatWithHistory(opts: {
   history: { role: 'user' | 'assistant'; content: string }[];
   temperature?: number;
 }): Promise<string> {
-  const s = await getSettings();
-  const model = s.modelFast;
+  return withRetry(async () => {
+    const s = await getSettings();
+    const model = s.modelFast;
 
-  if (isAnthropic(s)) {
-    const baseUrl = s.baseUrl || 'https://api.anthropic.com';
-    const res = await fetch(`${baseUrl}/v1/messages`, {
+    if (isAnthropic(s)) {
+      const baseUrl = s.baseUrl || 'https://api.anthropic.com';
+      const res = await fetch(`${baseUrl}/v1/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': s.apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model,
+          system: opts.system,
+          messages: opts.history,
+          temperature: opts.temperature ?? 0.7,
+          max_tokens: 1024,
+        }),
+      });
+      if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+      const data = await res.json();
+      return data.content?.[0]?.text || '';
+    }
+
+    const res = await fetch(`${s.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': s.apiKey,
-        'anthropic-version': '2023-06-01',
+        ...(s.apiKey ? { Authorization: `Bearer ${s.apiKey}` } : {}),
       },
       body: JSON.stringify({
         model,
-        system: opts.system,
-        messages: opts.history,
-        temperature: opts.temperature ?? 0.7,
-        max_tokens: 1024,
+        messages: [
+          { role: 'system', content: opts.system },
+          ...opts.history,
+        ],
+        ...temperatureParam(model, opts.temperature ?? 0.7),
+        ...maxTokensParam(model, 1024),
       }),
     });
     if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
     const data = await res.json();
-    return data.content?.[0]?.text || '';
-  }
-
-  const res = await fetch(`${s.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(s.apiKey ? { Authorization: `Bearer ${s.apiKey}` } : {}),
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: opts.system },
-        ...opts.history,
-      ],
-      temperature: opts.temperature ?? 0.7,
-      ...maxTokensParam(model, 1024),
-    }),
+    return data.choices?.[0]?.message?.content || '';
   });
-  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || '';
 }
 
 
@@ -185,57 +230,60 @@ export async function chatWithImage(opts: {
   mimeType?: string;
   model?: string;
 }): Promise<string> {
-  const s = await getSettings();
-  const mimeType = opts.mimeType || 'image/png';
+  return withRetry(async () => {
+    const s = await getSettings();
+    const mimeType = opts.mimeType || 'image/png';
 
-  if (isAnthropic(s)) {
-    const baseUrl = s.baseUrl || 'https://api.anthropic.com';
-    const res = await fetch(`${baseUrl}/v1/messages`, {
+    if (isAnthropic(s)) {
+      const baseUrl = s.baseUrl || 'https://api.anthropic.com';
+      const res = await fetch(`${baseUrl}/v1/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': s.apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: opts.model || s.modelStrong,
+          max_tokens: 4096,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mimeType, data: opts.imageBase64 } },
+              { type: 'text', text: opts.prompt },
+            ],
+          }],
+        }),
+      });
+      if (!res.ok) throw new Error(`API ${res.status}`);
+      const data = await res.json();
+      return data.content?.[0]?.text || '';
+    }
+
+    const imgModel = opts.model || s.modelStrong;
+    const res = await fetch(`${s.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': s.apiKey,
-        'anthropic-version': '2023-06-01',
+        ...(s.apiKey ? { Authorization: `Bearer ${s.apiKey}` } : {}),
       },
       body: JSON.stringify({
-        model: opts.model || s.modelStrong,
-        max_tokens: 4096,
+        model: imgModel,
         messages: [{
           role: 'user',
           content: [
-            { type: 'image', source: { type: 'base64', media_type: mimeType, data: opts.imageBase64 } },
+            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${opts.imageBase64}` } },
             { type: 'text', text: opts.prompt },
           ],
         }],
+        ...temperatureParam(imgModel, 0.3),
+        ...maxTokensParam(imgModel, 4096),
       }),
     });
     if (!res.ok) throw new Error(`API ${res.status}`);
     const data = await res.json();
-    return data.content?.[0]?.text || '';
-  }
-
-  const res = await fetch(`${s.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(s.apiKey ? { Authorization: `Bearer ${s.apiKey}` } : {}),
-    },
-    body: JSON.stringify({
-      model: opts.model || s.modelStrong,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${opts.imageBase64}` } },
-          { type: 'text', text: opts.prompt },
-        ],
-      }],
-      temperature: 0.3,
-      ...maxTokensParam(opts.model || s.modelStrong, 4096),
-    }),
+    return data.choices?.[0]?.message?.content || '';
   });
-  if (!res.ok) throw new Error(`API ${res.status}`);
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || '';
 }
 
 /**
@@ -364,6 +412,7 @@ export async function chatStream(opts: {
       }),
     });
   } else {
+    const streamModel = opts.model || s.modelStrong;
     res = await fetch(`${s.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -371,13 +420,13 @@ export async function chatStream(opts: {
         ...(s.apiKey ? { Authorization: `Bearer ${s.apiKey}` } : {}),
       },
       body: JSON.stringify({
-        model: opts.model || s.modelStrong,
+        model: streamModel,
         messages: [
           { role: 'system', content: opts.system },
           { role: 'user', content: opts.user },
         ],
-        temperature: opts.temperature ?? 0.3,
-        ...maxTokensParam(opts.model || s.modelStrong, 4096),
+        ...temperatureParam(streamModel, opts.temperature ?? 0.3),
+        ...maxTokensParam(streamModel, 4096),
         stream: true,
       }),
     });

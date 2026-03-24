@@ -31,7 +31,7 @@ export default function App() {
   const { reset: resetCompilation } = useCompilationStore();
   const { newChat } = useChatStore();
   const msgCount = useChatStore(s => s.messages.length);
-  const showWelcomeCrab = msgCount <= 1; // WelcomeScreen (big crab) is visible
+  const showWelcomeCrab = msgCount <= 1;
   const [activeTab, setActiveTab] = useState<TabId>('chat');
   useBgMessage();
 
@@ -51,7 +51,7 @@ export default function App() {
       overflow: 'hidden',
       position: 'relative',
     }}>
-      {/* Header — logo + brand + new chat */}
+      {/* Header */}
       <header style={{
         display: 'flex',
         alignItems: 'center',
@@ -99,7 +99,7 @@ export default function App() {
         </button>
       </header>
 
-      {/* Nav bar — full width row, icons always fit */}
+      {/* Nav bar */}
       <nav style={{
         display: 'flex',
         alignItems: 'center',
@@ -154,7 +154,7 @@ export default function App() {
       {/* Progress stepper — only when compiling */}
       {phase !== 'idle' && phase !== 'error' && <ProgressStepper />}
 
-      {/* Content — flex:1, min-height:0 is CRITICAL for scroll to work */}
+      {/* Content */}
       <div style={{ flex: '1 1 0', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: activeTab === 'chat'     ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 0', minHeight: 0 }}><ChatPanel /></div>
         <div style={{ display: activeTab === 'preview'  ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 0', minHeight: 0 }}><SkillPreview /></div>
@@ -165,10 +165,10 @@ export default function App() {
         <div style={{ display: activeTab === 'settings' ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 0', minHeight: 0, overflowY: 'auto', padding: 16 }}><SettingsPanel /></div>
       </div>
 
-      {/* Floating ASCII mascot — only visible on chat tab when big welcome crab is NOT shown */}
+      {/* Floating ASCII mascot */}
       {activeTab === 'chat' && !showWelcomeCrab && <CrabMascot />}
 
-      {/* Error toast — overlays content, auto-dismiss */}
+      {/* Error toast */}
       <ErrorToast onNavigate={(tab) => setActiveTab(tab as TabId)} />
     </div>
   );

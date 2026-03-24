@@ -42,6 +42,7 @@ export function useBgMessage() {
           setPhase('done', msg.result.detail, 100);
           setProcessing(false);
           finalizeStreaming();
+          if (msg.result.skill) setSkill(msg.result.skill);
           if (msg.result.validation) setValidation(msg.result.validation);
           addMessage({ role: 'assistant', content: `Done! ${msg.result.detail}` });
           break;

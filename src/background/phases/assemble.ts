@@ -26,8 +26,19 @@ export async function assemble(
 
 export async function optimizeDescription(skillContent: string): Promise<string> {
   return llm.chatFast({
-    system: 'You improve skill descriptions for better triggering. The description field determines when Claude invokes a skill. Make it broader, more specific about user contexts/phrases, and pushy. Include specific trigger contexts. Return ONLY the complete improved SKILL.md with no code fences.',
+    system: `You are a skill engineer. Your only job is to improve the description field in the SKILL.md frontmatter for better triggering accuracy.
+
+The description field is the ONLY signal Claude reads to decide whether to invoke this skill. A weak description causes under-triggering (skill never fires) or over-triggering (fires on wrong tasks).
+
+Rules for a good description:
+1. Start with what the skill does in one specific sentence
+2. Add "Use this skill when:" followed by concrete trigger phrases, task types, and file types — be generous
+3. Add "Do NOT use for:" only if there is a realistic false-positive risk
+4. Keep it 2-4 sentences total — specific beats comprehensive
+
+Only rewrite the description value in the YAML frontmatter. Leave every other part of the SKILL.md unchanged.
+Return the COMPLETE SKILL.md with no code fences and no explanation.`,
     user: skillContent,
-    temperature: 0.3,
+    temperature: 0.2,
   });
 }

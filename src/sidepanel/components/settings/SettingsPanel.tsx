@@ -137,7 +137,7 @@ export function SettingsPanel() {
       <div style={sectionStyle}>
         <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--crab-text)' }}>Validation</h3>
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <div>
               <label style={labelStyle}>Max Iterations</label>
               <input
@@ -160,6 +160,19 @@ export function SettingsPanel() {
                 step={0.05}
                 value={settings.minScore}
                 onChange={(e) => update({ minScore: parseFloat(e.target.value) || 0.85 })}
+                style={inputStyle}
+                onFocus={(e) => { e.target.style.borderColor = 'var(--crab-accent)'; }}
+                onBlur={(e) => { e.target.style.borderColor = 'var(--crab-border)'; }}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Eval Count</label>
+              <input
+                type="number"
+                min={2}
+                max={12}
+                value={settings.evalCount}
+                onChange={(e) => update({ evalCount: parseInt(e.target.value) || 6 })}
                 style={inputStyle}
                 onFocus={(e) => { e.target.style.borderColor = 'var(--crab-accent)'; }}
                 onBlur={(e) => { e.target.style.borderColor = 'var(--crab-border)'; }}

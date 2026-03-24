@@ -1,5 +1,6 @@
 import { compile, cancelCompilation } from './pipeline';
 import { chatWithHistory } from './llm';
+import { optimizePipeline, cancelOptimize } from './phases/prompt-optimizer';
 import type { Settings } from '../sidepanel/lib/types';
 
 // Open side panel on icon click
@@ -15,6 +16,7 @@ const DEFAULTS: Settings = {
   modelTarget: '',
   maxIterations: 3,
   minScore: 0.85,
+  evalCount: 6,
   language: 'vi',
 };
 
@@ -49,9 +51,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     case 'COMPILE':
       startKeepAlive();
       compile(msg.data.files, msg.data.userMessage)
-        .then(r => { stopKeepAlive(); sendResponse({ ok: true, data: r }); })
-        .catch(e => { stopKeepAlive(); sendResponse({ ok: false, error: e.message }); });
-      return true; // async
+        .then(() => stopKeepAlive())
+        .catch(e => { stopKeepAlive(); chrome.runtime.sendMessage({ type: 'ERROR', error: e.message }).catch(() => {}); });
+      sendResponse({ ok: true }); // respond immediately, results via PROGRESS/DONE messages
+      break;
 
     case 'CHAT':
       (async () => {
@@ -96,33 +99,48 @@ Keep responses SHORT and direct (2-4 sentences). Be friendly and emoji-free.`,
         try {
           const msg_text: string = msg.data.message || '';
           const reply = await chatWithHistory({
-            system: `You are a router. Classify the user's message as either COMPILE or CHAT.
+            system: `You are a router. Classify the user's message into exactly one of three intents: COMPILE, OPTIMIZE, or CHAT.
 
-COMPILE = the user wants to CREATE something new: a skill, tool, function schema, agent, workflow, API definition, process document. Any request to build/generate/create/make something counts.
-CHAT = the user is asking a question, chatting, saying hello, asking for explanation, or doing anything that is NOT a create/build request.
+OPTIMIZE = the user wants to improve, fix, rewrite, or optimize an EXISTING skill/prompt/description. Keywords: "tối ưu", "optimize", "cải thiện", "sửa", "improve", "rewrite", "fix prompt", "tối ưu prompt", "optimize prompt", "optimize skill", "cải thiện skill", "sửa prompt". The user is asking to make an existing thing better — NOT create something new.
 
-When in doubt, choose COMPILE — it's better to over-trigger than to miss a create request.
+COMPILE = the user wants to CREATE something brand new: a skill, tool, function schema, agent, workflow, API definition, process document. Any request to build/generate/create/make something new counts.
 
-Reply with ONLY a single JSON object: {"compile": true} or {"compile": false}`,
+CHAT = the user is asking a question, chatting, saying hello, asking for explanation, or doing anything that is NOT a create/build/optimize request.
+
+Priority: if the message mentions optimizing/improving a prompt or skill → OPTIMIZE (even if it also describes a workflow).
+When in doubt between COMPILE and CHAT → choose COMPILE.
+When in doubt between OPTIMIZE and COMPILE → choose OPTIMIZE if there's any mention of fixing/improving existing content.
+
+Reply with ONLY a single JSON object: {"intent": "compile"} or {"intent": "optimize"} or {"intent": "chat"}`,
             history: [{ role: 'user', content: msg_text }],
             temperature: 0,
           });
           try {
             const parsed = JSON.parse(reply.trim().replace(/^```json?\n?/, '').replace(/\n?```$/, ''));
-            sendResponse({ compile: parsed.compile === true });
+            const intent = parsed.intent ?? (parsed.compile === true ? 'compile' : 'chat');
+            sendResponse({ compile: intent === 'compile', optimize: intent === 'optimize' });
           } catch {
-            sendResponse({ compile: true }); // default to compile on parse failure
+            sendResponse({ compile: true, optimize: false });
           }
         } catch {
-          sendResponse({ compile: true }); // default to compile on error
+          sendResponse({ compile: true, optimize: false });
         }
       })();
       return true; // async
 
     case 'CANCEL':
       cancelCompilation();
+      cancelOptimize();
       stopKeepAlive();
       sendResponse({ ok: true });
+      break;
+
+    case 'OPTIMIZE_PROMPT':
+      startKeepAlive();
+      optimizePipeline(msg.data.skillContent)
+        .then(() => stopKeepAlive())
+        .catch(e => { stopKeepAlive(); chrome.runtime.sendMessage({ type: 'ERROR', error: e.message }).catch(() => {}); });
+      sendResponse({ ok: true }); // respond immediately, results via PROGRESS/DONE messages
       break;
 
     case 'GET_SETTINGS':

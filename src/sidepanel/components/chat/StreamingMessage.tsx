@@ -1,5 +1,4 @@
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { MarkdownRenderer } from '@/components/shared/MarkdownRenderer';
 
 interface Props {
   content: string;
@@ -7,9 +6,13 @@ interface Props {
 
 export function StreamingMessage({ content }: Props) {
   return (
-    <div className="prose prose-sm dark:prose-invert max-w-none [&_p]:my-1">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-      <span className="inline-block w-1.5 h-4 bg-foreground/60 animate-pulse ml-0.5" />
+    <div style={{ flex: 1, minWidth: 0, fontSize: 14, overflowX: 'hidden' }}>
+      <MarkdownRenderer content={content} />
+      <span className="inline-block w-1.5 h-4 animate-pulse ml-0.5" style={{
+        background: 'var(--crab-accent)',
+        borderRadius: 2,
+        verticalAlign: 'text-bottom',
+      }} />
     </div>
   );
 }

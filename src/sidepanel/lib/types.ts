@@ -8,6 +8,7 @@ export interface Settings {
   modelTarget: string;   // Model the agent will be deployed on — determines tool schema format
   maxIterations: number;
   minScore: number;
+  evalCount: number;     // Number of test cases for evaluation (default 6)
   language: 'vi' | 'en';
 }
 
@@ -20,6 +21,7 @@ export const DEFAULT_SETTINGS: Settings = {
   modelTarget: '',
   maxIterations: 3,
   minScore: 0.85,
+  evalCount: 6,
   language: 'vi',
 };
 
@@ -45,7 +47,7 @@ export interface ChatMessage {
 }
 
 // ==================== Pipeline ====================
-export type Phase = 'idle' | 'ingest' | 'extract' | 'assemble' | 'evaluate' | 'validate' | 'agent' | 'done' | 'error';
+export type Phase = 'idle' | 'ingest' | 'extract' | 'assemble' | 'evaluate' | 'validate' | 'agent' | 'optimize' | 'done' | 'error';
 
 export interface CompilationState {
   phase: Phase;
@@ -246,6 +248,7 @@ export type ToBackground =
   | { type: 'CHAT'; data: { message: string; context?: string; history?: { role: 'user' | 'assistant'; content: string }[] } }
   | { type: 'CLASSIFY'; data: { message: string } }
   | { type: 'VALIDATE'; data: { skillContent: string; evals: EvalSet } }
+  | { type: 'OPTIMIZE_PROMPT'; data: { skillContent: string } }
   | { type: 'CANCEL' }
   | { type: 'GET_SETTINGS' }
   | { type: 'SAVE_SETTINGS'; data: Settings };

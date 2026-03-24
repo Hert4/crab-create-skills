@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "description": "Convert business documents into Agent Skills - Powered by Crab",
   "permissions": ["storage", "sidePanel", "activeTab"],
+  "host_permissions": ["https://*/*", "http://*/*"],
   "side_panel": {
     "default_path": "src/sidepanel/index.html"
   },

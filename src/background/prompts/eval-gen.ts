@@ -1,4 +1,8 @@
-export const EVAL_GEN_PROMPT = `You are a QA engineer generating test cases for an Agent Skill.
+export function buildEvalGenPrompt(evalCount: number): string {
+  const happy = Math.ceil(evalCount / 2);
+  const edge = evalCount - happy;
+
+  return `You are a QA engineer generating test cases for an Agent Skill.
 
 Your goal is to create a diverse eval set that genuinely tests whether the skill adds value — not just whether the model can answer the prompt at all.
 
@@ -17,11 +21,11 @@ Generate queries a real user would type — not abstract, but concrete and speci
 Good: "ok so sếp vừa gửi file excel Q4 sales final v2 vào slack bảo cần phân tích margin cho meeting 3h chiều nay"
 Bad: "Process a document" or "Format this data"
 
-## Functional Evals (4 total)
+## Functional Evals (${evalCount} total)
 
 Test whether the skill produces correct, useful output. Include:
-- 2 happy-path cases (normal, well-formed input)
-- 2 edge cases drawn from the skill's constraints/error handling rules
+- ${happy} happy-path cases (normal, well-formed input)
+- ${edge} edge cases drawn from the skill's constraints/error handling rules
 
 Each eval needs good assertions. Assertions should be *discriminating* — they pass when the skill genuinely succeeds and fail when it doesn't. Avoid assertions that would pass even for a clearly wrong output.
 
@@ -50,3 +54,4 @@ Return JSON:
     ...
   ]
 }`;
+}

@@ -1,6 +1,5 @@
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/utils';
+import { MarkdownRenderer } from '@/components/shared/MarkdownRenderer';
 import type { ChatMessage as ChatMessageType } from '@/lib/types';
 import { FileChip } from './FileChip';
 
@@ -68,55 +67,7 @@ export function ChatMessage({ message }: Props) {
 
           {/* Message content */}
           <div style={{ flex: 1, minWidth: 0, fontSize: 14, overflowX: 'hidden' }}>
-            <div
-              className="prose-crab"
-              style={{ overflowX: 'hidden', wordBreak: 'break-word' }}
-            >
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  pre: ({ children }) => (
-                    <pre style={{
-                      overflowX: 'auto',
-                      maxWidth: '100%',
-                      background: 'var(--crab-bg-tertiary)',
-                      border: '0.5px solid var(--crab-border)',
-                      borderRadius: 10,
-                      padding: '10px 14px',
-                      margin: '8px 0',
-                      fontSize: 12,
-                    }}>
-                      {children}
-                    </pre>
-                  ),
-                  code: ({ children, className }) => {
-                    const isBlock = className?.includes('language-');
-                    return isBlock ? (
-                      <code style={{ fontFamily: "'JetBrains Mono', monospace", display: 'block', overflowX: 'auto', wordBreak: 'normal', whiteSpace: 'pre' }}>
-                        {children}
-                      </code>
-                    ) : (
-                      <code style={{
-                        fontFamily: "'JetBrains Mono', monospace",
-                        background: 'var(--crab-bg-tertiary)',
-                        padding: '1px 5px',
-                        borderRadius: 5,
-                        fontSize: 12,
-                        color: 'var(--crab-accent-hover)',
-                        wordBreak: 'break-all',
-                      }}>
-                        {children}
-                      </code>
-                    );
-                  },
-                  p: ({ children }) => (
-                    <p style={{ margin: '4px 0', lineHeight: 1.6, wordBreak: 'break-word' }}>{children}</p>
-                  ),
-                }}
-              >
-                {message.content}
-              </ReactMarkdown>
-            </div>
+            <MarkdownRenderer content={message.content} />
             {message.isStreaming && (
               <span className="thinking-dots mt-1 inline-flex gap-0.5">
                 <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--crab-accent)' }} />

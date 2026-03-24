@@ -1,19 +1,36 @@
-export const INTENT_PROMPT = `You are a business analyst AI.
+export const INTENT_PROMPT = `You are a business analyst. Analyze the document and determine what Agent Skill should be created from it.
 
-Analyze the document and determine what Agent Skill should be created.
+Return JSON with exactly these fields:
 
-Return JSON:
 {
   "skill_name": "kebab-case-name",
-  "skill_type": "capability" or "preference",
-  "description": "Pushy description for SKILL.md frontmatter. Include what the skill does AND when to trigger. End with 'Use this skill whenever...' Make it detailed so the AI agent knows EXACTLY when to invoke this skill.",
-  "target_user": "Who uses this skill",
-  "domain": "Business domain"
+  "skill_type": "capability" | "preference",
+  "description": "<see rules below>",
+  "target_user": "<who uses this — role or persona, e.g. 'finance team', 'customer support agent', 'developer'>",
+  "domain": "<domain tag — use one of: finance, legal, hr, sales, support, data-analytics, engineering, marketing, operations, education, healthcare, logistics, creative, general>"
 }
 
-IMPORTANT for description:
-- Be pushy about triggering (Claude undertriggers skills)
-- Include specific keywords/phrases that should trigger
-- Example: "Process order approvals following policy. Use this skill whenever the user mentions order approval, purchase requests, manager sign-off, or any workflow involving reviewing and approving orders, even if they don't explicitly say 'approval workflow'."
+## skill_type rules
+- "capability": the skill teaches the agent HOW to do something (process invoices, analyze data, generate reports)
+- "preference": the skill stores user preferences or personal style (writing tone, formatting rules, personal workflows)
+
+## description rules
+This field is the ONLY thing Claude reads to decide whether to invoke the skill. Write it to maximize correct triggering.
+
+Structure it in 3 parts:
+1. One sentence: what the skill does and the domain it covers
+2. "Use this skill when:" followed by a specific list of trigger phrases, file types, and contexts
+3. (Optional) "Do NOT use for:" — only add this if there's a realistic false-positive risk
+
+Length: 2-4 sentences. Specific over generic. Err toward over-triggering.
+
+Good description example:
+"Processes customer support tickets following the company escalation policy. Use this skill when the user wants to handle a complaint, create a support ticket, escalate an issue to a manager, check ticket status, or resolve a customer problem — even if they don't say 'ticket' explicitly."
+
+Bad description example:
+"Helps with customer service tasks. Use when needed."
+
+## domain field
+Pick the single closest tag from this list: finance, legal, hr, sales, support, data-analytics, engineering, marketing, operations, education, healthcare, logistics, creative, general
 
 Return ONLY valid JSON.`;

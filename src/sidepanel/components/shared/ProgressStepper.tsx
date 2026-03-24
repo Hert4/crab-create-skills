@@ -10,20 +10,24 @@ const PHASE_LABELS: Partial<Record<Phase, string>> = {
   evaluate: 'Evaluating',
   validate: 'Validating',
   agent:    'Agent',
+  optimize: 'Optimizing',
   done:     'Complete',
   error:    'Error',
 };
 
-const PHASE_ORDER: Phase[] = ['ingest', 'extract', 'assemble', 'evaluate', 'validate', 'agent'];
+const COMPILE_PHASES: Phase[] = ['ingest', 'extract', 'assemble', 'evaluate', 'validate', 'agent'];
+const OPTIMIZE_PHASES: Phase[] = ['optimize', 'evaluate', 'validate'];
 
 export function ProgressStepper() {
   const { phase, progress, detail } = useCompilationStore();
   const { cancelCompilation } = useCompilation();
   const [visible, setVisible] = useState(true);
 
+  const pipelineMode = useCompilationStore(s => s.pipelineMode);
   const isDone = phase === 'done';
   const isError = phase === 'error';
   const isRunning = !isDone && !isError && phase !== 'idle';
+  const PHASE_ORDER = pipelineMode === 'optimize' ? OPTIMIZE_PHASES : COMPILE_PHASES;
   const currentIdx = PHASE_ORDER.indexOf(phase as Phase);
   const label = PHASE_LABELS[phase] ?? phase;
 

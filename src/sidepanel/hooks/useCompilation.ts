@@ -4,7 +4,10 @@ import { useSettings } from '@/hooks/useSettings';
 
 export function useCompilation() {
   const { addMessage, attachedFiles, clearFiles, setProcessing, messages } = useChatStore();
-  const { reset, setError, skill, agentTemplate } = useCompilationStore();
+  const { reset, setError, setPhase, setPipelineMode } = useCompilationStore();
+  // Use selectors for reactive values
+  const skill = useCompilationStore(s => s.skill);
+  const agentTemplate = useCompilationStore(s => s.agentTemplate);
   const { settings } = useSettings();
 
   const startCompilation = async (userMessage: string) => {
@@ -28,17 +31,40 @@ export function useCompilation() {
 
     // If files attached → always compile. Otherwise ask background to classify intent.
     let isCompile = hasFiles;
+    let isOptimize = false;
     if (!isCompile) {
       try {
         const r = await chrome.runtime.sendMessage({
           type: 'CLASSIFY',
           data: { message: userMessage },
         });
-        isCompile = r?.compile === true;
+        isOptimize = r?.optimize === true;
+        isCompile = !isOptimize && r?.compile === true;
       } catch {
-        // If classify fails, fall back to compile (safer)
         isCompile = true;
       }
+    }
+
+    // ── OPTIMIZE PROMPT (full pipeline with evals) ──────────────────────────
+    if (isOptimize) {
+      addMessage({ role: 'assistant', content: 'Optimizing prompt...' });
+      setProcessing(true);
+      reset();
+      setPipelineMode('optimize');
+
+      try {
+        await chrome.runtime.sendMessage({
+          type: 'OPTIMIZE_PROMPT',
+          data: { skillContent: userMessage },
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(msg);
+        addMessage({ role: 'assistant', content: `Lỗi kết nối: ${msg}` });
+        setProcessing(false);
+      }
+      clearFiles();
+      return;
     }
 
     if (isCompile) {
@@ -46,6 +72,7 @@ export function useCompilation() {
       addMessage({ role: 'assistant', content: 'Processing...' });
       setProcessing(true);
       reset();
+      setPipelineMode('compile');
 
       try {
         await chrome.runtime.sendMessage({
@@ -108,7 +135,9 @@ export function useCompilation() {
     try {
       await chrome.runtime.sendMessage({ type: 'CANCEL' });
     } catch { /* ignore */ }
+    // Reset UI state immediately — don't wait for background to acknowledge
     setProcessing(false);
+    setPhase('idle', '', 0);
   };
 
   return { startCompilation, cancelCompilation };

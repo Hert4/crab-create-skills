@@ -62,16 +62,17 @@ export async function compile(files: ParsedFile[], userMessage: string): Promise
 
     // ===== Phase 4: Generate Evals =====
     sendProgress('evaluate', 'Generating test cases...', 54);
-    const evals = await generateEvals(intent, steps, constraints);
+    const settings = await new Promise<Record<string, unknown>>((resolve) => {
+      chrome.storage.local.get('settings', (d) => resolve(d.settings || {}));
+    });
+    const evalCount = (settings.evalCount as number) || 6;
+    const evals = await generateEvals(intent, steps, constraints, evalCount);
     if (cancelled) throw new Error('Cancelled');
 
     sendMsg({ type: 'EVALS_READY', evals });
 
     // ===== Phase 5: Validate =====
     sendProgress('validate', 'Running validation...', 64);
-    const settings = await new Promise<Record<string, unknown>>((resolve) => {
-      chrome.storage.local.get('settings', (d) => resolve(d.settings || {}));
-    });
     const validation = await validate(
       skill,
       evals,
@@ -127,7 +128,7 @@ export async function compile(files: ParsedFile[], userMessage: string): Promise
   }
 }
 
-async function saveToHistory(skill: SkillOutput, validation: { bestScore: number }) {
+export async function saveToHistory(skill: SkillOutput, validation: { bestScore: number }) {
   const entry = {
     id: crypto.randomUUID(),
     timestamp: Date.now(),

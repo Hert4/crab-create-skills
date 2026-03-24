@@ -11,61 +11,57 @@ export async function validate(
   onProgress: (iteration: number, score: number) => void,
 ): Promise<ValidationResult> {
   let skillContent = skill.content;
+  let bestContent = skillContent;
+  let bestScore = 0;
   const iterations: IterationResult[] = [];
 
   for (let iter = 1; iter <= maxIterations; iter++) {
-    const evalResults = [];
+    // Run all evals in parallel — each eval is independent
+    const evalResults = await Promise.all(
+      evals.functional_evals.map(async (evalCase) => {
+        // Execute WITH and WITHOUT skill concurrently
+        const [withSkill, withoutSkill] = await Promise.all([
+          llm.chatFast({
+            system: `You have this skill:\n\n${skillContent}\n\nFollow it.`,
+            user: evalCase.prompt,
+            temperature: 0.2,
+          }),
+          llm.chatFast({
+            system: 'You are a helpful AI assistant.',
+            user: evalCase.prompt,
+            temperature: 0.2,
+          }),
+        ]);
 
-    for (const evalCase of evals.functional_evals) {
-      // Execute WITH skill (fast model)
-      const withSkill = await llm.chatFast({
-        system: `You have this skill:\n\n${skillContent}\n\nFollow it.`,
-        user: evalCase.prompt,
-        temperature: 0.2,
-      });
+        // Blind comparison (eval model)
+        const comparison = await llm.chatJSONEval<CompareResult>({
+          system: GRADER_PROMPT,
+          user: JSON.stringify({
+            prompt: evalCase.prompt,
+            expected_output: evalCase.expected_output,
+            output_a: withSkill,
+            output_b: withoutSkill,
+            assertions: evalCase.assertions,
+          }),
+          temperature: 0.1,
+        });
 
-      // Execute WITHOUT skill — baseline (fast model)
-      const withoutSkill = await llm.chatFast({
-        system: 'You are a helpful AI assistant.',
-        user: evalCase.prompt,
-        temperature: 0.2,
-      });
+        const grade: GradeResult = {
+          overall_score: comparison.score_a,
+          assertions: comparison.assertions.map(a => ({ text: a.text, passed: a.a_passed, evidence: '' })),
+          feedback: comparison.feedback,
+          reasoning: comparison.reasoning,
+        };
+        const baselineGrade: GradeResult = {
+          overall_score: comparison.score_b,
+          assertions: comparison.assertions.map(a => ({ text: a.text, passed: a.b_passed, evidence: '' })),
+          feedback: comparison.feedback,
+          reasoning: '',
+        };
 
-      // Blind comparison (eval model) — doesn't know which output used the skill
-      const comparison = await llm.chatJSONEval<CompareResult>({
-        system: GRADER_PROMPT,
-        user: JSON.stringify({
-          prompt: evalCase.prompt,
-          expected_output: evalCase.expected_output,
-          output_a: withSkill,
-          output_b: withoutSkill,
-          assertions: evalCase.assertions,
-        }),
-        temperature: 0.1,
-      });
-
-      // Map to GradeResult for withSkill (A) and withoutSkill (B)
-      const grade: GradeResult = {
-        overall_score: comparison.score_a,
-        assertions: comparison.assertions.map(a => ({ text: a.text, passed: a.a_passed, evidence: '' })),
-        feedback: comparison.feedback,
-        reasoning: comparison.reasoning,
-      };
-      const baselineGrade: GradeResult = {
-        overall_score: comparison.score_b,
-        assertions: comparison.assertions.map(a => ({ text: a.text, passed: a.b_passed, evidence: '' })),
-        feedback: comparison.feedback,
-        reasoning: '',
-      };
-
-      evalResults.push({
-        evalId: evalCase.id,
-        withSkillOutput: withSkill,
-        withoutSkillOutput: withoutSkill,
-        grade,
-        baselineGrade,
-      });
-    }
+        return { evalId: evalCase.id, withSkillOutput: withSkill, withoutSkillOutput: withoutSkill, grade, baselineGrade };
+      })
+    );
 
     const avgScore = evalResults.reduce((s, r) => s + r.grade.overall_score, 0) / evalResults.length;
     const avgBaseline = evalResults.reduce((s, r) => s + r.baselineGrade.overall_score, 0) / evalResults.length;
@@ -77,6 +73,12 @@ export async function validate(
       improvement: avgScore - avgBaseline,
       evalResults,
     });
+
+    // Track best version
+    if (avgScore > bestScore) {
+      bestScore = avgScore;
+      bestContent = skillContent;
+    }
 
     onProgress(iter, avgScore);
 
@@ -96,7 +98,7 @@ export async function validate(
     bestScore: best.avgScore,
     bestIteration: best.iteration,
     improvementOverBaseline: best.improvement,
-    finalSkillContent: skillContent,
+    finalSkillContent: bestContent,
   };
 }
 
