@@ -119,7 +119,7 @@ Reply with ONLY a single JSON object: {"compile": true} or {"compile": false}`,
       })();
       return true; // async
 
-
+    case 'CANCEL':
       cancelCompilation();
       stopKeepAlive();
       sendResponse({ ok: true });

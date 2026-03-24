@@ -108,6 +108,9 @@ function ToolCard({ tool }: { tool: DetectedTool }) {
 
 export function ToolsPanel() {
   const agentTemplate = useCompilationStore(s => s.agentTemplate);
+  const toolOutput = agentTemplate?.tools;
+  const preferred = toolOutput?.preferredFormat ?? 'openai';
+  const [activeFormat, setActiveFormat] = useState<SchemaFormat>(preferred);
 
   if (!agentTemplate) {
     return (
@@ -120,9 +123,6 @@ export function ToolsPanel() {
   }
 
   const { tools } = agentTemplate.tools;
-  const toolOutput = agentTemplate.tools;
-  const preferred = toolOutput.preferredFormat ?? 'openai';
-  const [activeFormat, setActiveFormat] = useState<SchemaFormat>(preferred);
 
   if (tools.length === 0) {
     return (
@@ -135,10 +135,10 @@ export function ToolsPanel() {
   }
 
   const schemaContent = activeFormat === 'openai'
-    ? JSON.stringify(toolOutput.openai, null, 2)
+    ? JSON.stringify(toolOutput!.openai, null, 2)
     : activeFormat === 'anthropic'
-      ? JSON.stringify(toolOutput.anthropic, null, 2)
-      : toolOutput.openapi;
+      ? JSON.stringify(toolOutput!.anthropic, null, 2)
+      : toolOutput!.openapi;
 
   const formatTabs: { id: SchemaFormat; label: string }[] = [
     { id: 'openai', label: 'OpenAI' },

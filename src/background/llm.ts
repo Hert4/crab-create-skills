@@ -34,6 +34,15 @@ function isAnthropic(s: Settings): boolean {
 }
 
 /**
+ * Some newer OpenAI models (o-series, gpt-5.x) require max_completion_tokens
+ * instead of the legacy max_tokens parameter.
+ */
+function maxTokensParam(model: string, value: number): Record<string, number> {
+  const usesCompletionTokens = /^(o\d|gpt-5)/i.test(model);
+  return usesCompletionTokens ? { max_completion_tokens: value } : { max_tokens: value };
+}
+
+/**
  * Low-level fetch helper. Handles both OpenAI-compatible and Anthropic APIs.
  */
 async function fetchChat(opts: {
@@ -81,7 +90,7 @@ async function fetchChat(opts: {
         { role: 'user', content: opts.user },
       ],
       temperature: opts.temperature ?? 0.3,
-      max_tokens: 4096,
+      ...maxTokensParam(opts.model, 4096),
     }),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -135,7 +144,7 @@ export async function chatWithHistory(opts: {
         ...opts.history,
       ],
       temperature: opts.temperature ?? 0.7,
-      max_tokens: 1024,
+      ...maxTokensParam(model, 1024),
     }),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -221,7 +230,7 @@ export async function chatWithImage(opts: {
         ],
       }],
       temperature: 0.3,
-      max_tokens: 4096,
+      ...maxTokensParam(opts.model || s.modelStrong, 4096),
     }),
   });
   if (!res.ok) throw new Error(`API ${res.status}`);
@@ -368,7 +377,7 @@ export async function chatStream(opts: {
           { role: 'user', content: opts.user },
         ],
         temperature: opts.temperature ?? 0.3,
-        max_tokens: 4096,
+        ...maxTokensParam(opts.model || s.modelStrong, 4096),
         stream: true,
       }),
     });

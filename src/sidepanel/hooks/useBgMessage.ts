@@ -8,7 +8,7 @@ import type { ToSidepanel } from '@/lib/types';
  */
 export function useBgMessage() {
   const { setPhase, setSkill, setEvals, setValidation, setAgentTemplate, setError } = useCompilationStore();
-  const { addMessage, updateLastAssistant, setProcessing } = useChatStore();
+  const { addMessage, updateLastAssistant, finalizeStreaming, setProcessing } = useChatStore();
 
   useEffect(() => {
     const handler = (msg: ToSidepanel) => {
@@ -41,12 +41,14 @@ export function useBgMessage() {
         case 'DONE':
           setPhase('done', msg.result.detail, 100);
           setProcessing(false);
+          finalizeStreaming();
           if (msg.result.validation) setValidation(msg.result.validation);
           addMessage({ role: 'assistant', content: `Done! ${msg.result.detail}` });
           break;
         case 'ERROR':
           setError(msg.error);
           setProcessing(false);
+          finalizeStreaming();
           addMessage({ role: 'assistant', content: `❌ **Lỗi:** \`${msg.error}\`\n\nKiểm tra console (F12 → Service Worker) để xem chi tiết.` });
           break;
       }
@@ -54,5 +56,5 @@ export function useBgMessage() {
 
     chrome.runtime.onMessage.addListener(handler);
     return () => chrome.runtime.onMessage.removeListener(handler);
-  }, [setPhase, setSkill, setEvals, setValidation, setAgentTemplate, setError, addMessage, updateLastAssistant, setProcessing]);
+  }, [setPhase, setSkill, setEvals, setValidation, setAgentTemplate, setError, addMessage, updateLastAssistant, finalizeStreaming, setProcessing]);
 }

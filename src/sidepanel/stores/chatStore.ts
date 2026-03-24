@@ -11,7 +11,8 @@ interface Store {
   attachedFiles: ParsedFile[];
   isProcessing: boolean;
   addMessage: (msg: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
-  updateLastAssistant: (content: string) => void;
+  updateLastAssistant: (delta: string) => void;
+  finalizeStreaming: () => void;
   attachFile: (f: ParsedFile) => void;
   removeFile: (i: number) => void;
   clearFiles: () => void;
@@ -27,12 +28,18 @@ export const useChatStore = create<Store>((set) => ({
   addMessage: (msg) => set((s) => ({
     messages: [...s.messages, { ...msg, id: crypto.randomUUID(), timestamp: Date.now() }],
   })),
-  updateLastAssistant: (content) => set((s) => {
+  updateLastAssistant: (delta) => set((s) => {
     const msgs = [...s.messages];
     const i = msgs.findLastIndex(m => m.role === 'assistant');
-    if (i >= 0) msgs[i] = { ...msgs[i], content, isStreaming: true };
+    if (i >= 0) {
+      const prev = msgs[i].isStreaming ? msgs[i].content : '';
+      msgs[i] = { ...msgs[i], content: prev + delta, isStreaming: true };
+    }
     return { messages: msgs };
   }),
+  finalizeStreaming: () => set((s) => ({
+    messages: s.messages.map(m => m.isStreaming ? { ...m, isStreaming: false } : m),
+  })),
   attachFile: (f) => set((s) => s.attachedFiles.length >= 4 ? s : { attachedFiles: [...s.attachedFiles, f] }),
   removeFile: (i) => set((s) => ({ attachedFiles: s.attachedFiles.filter((_, idx) => idx !== i) })),
   clearFiles: () => set({ attachedFiles: [] }),
