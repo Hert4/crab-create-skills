@@ -91,9 +91,11 @@ async function fetchChat(opts: {
   user: string;
   model: string;
   temperature?: number;
+  maxTokens?: number;
 }): Promise<string> {
   return withRetry(async () => {
     const s = await getSettings();
+    const maxTok = opts.maxTokens ?? 4096;
 
     if (isAnthropic(s)) {
       // Anthropic Messages API
@@ -110,7 +112,7 @@ async function fetchChat(opts: {
           system: opts.system,
           messages: [{ role: 'user', content: opts.user }],
           temperature: opts.temperature ?? 0.3,
-          max_tokens: 4096,
+          max_tokens: maxTok,
         }),
       });
       if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -132,7 +134,7 @@ async function fetchChat(opts: {
           { role: 'user', content: opts.user },
         ],
         ...temperatureParam(opts.model, opts.temperature ?? 0.3),
-        ...maxTokensParam(opts.model, 4096),
+        ...maxTokensParam(opts.model, maxTok),
       }),
     });
     if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -203,6 +205,7 @@ export async function chat(opts: {
   user: string;
   model?: string;
   temperature?: number;
+  maxTokens?: number;
 }): Promise<string> {
   const s = await getSettings();
   return fetchChat({ ...opts, model: opts.model || s.modelStrong });
@@ -294,6 +297,7 @@ export async function chatJSON<T>(opts: {
   user: string;
   model?: string;
   temperature?: number;
+  maxTokens?: number;
 }): Promise<T> {
   const raw = await chat({
     ...opts,
@@ -302,9 +306,10 @@ export async function chatJSON<T>(opts: {
   try {
     return parseJSON<T>(raw);
   } catch {
-    // Retry once
+    // Retry once with higher token limit in case response was truncated
     const raw2 = await chat({
       ...opts,
+      maxTokens: Math.max(opts.maxTokens ?? 4096, 8192),
       system: opts.system + '\n\nIMPORTANT: Return ONLY valid JSON. No markdown fences, no explanation, no text before or after the JSON.',
     });
     return parseJSON<T>(raw2);

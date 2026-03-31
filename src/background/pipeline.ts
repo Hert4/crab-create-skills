@@ -31,15 +31,17 @@ export async function compile(files: ParsedFile[], userMessage: string): Promise
   try {
     // ===== Phase 1: Ingest =====
     sendProgress('ingest', 'Analyzing files...', 8);
-    const documentText = await ingest(files, userMessage);
+    const { documentText, preDetectedTools } = await ingest(files, userMessage);
+    console.log(`[pipeline] ingest done: docText=${documentText.length} chars, preDetectedTools=${preDetectedTools?.length ?? 'null'}`);
     if (cancelled) throw new Error('Cancelled');
 
     // ===== Phase 2: Extract + Detect (parallel) =====
     sendProgress('extract', 'Extracting business logic...', 20);
     const [{ intent, steps, constraints }, detectedTools] = await Promise.all([
       extract(documentText),
-      detectTools(documentText),
+      preDetectedTools !== null ? Promise.resolve(preDetectedTools) : detectTools(documentText),
     ]);
+    console.log(`[pipeline] detectedTools=${detectedTools.length} (preDetected=${preDetectedTools !== null})`);
     if (cancelled) throw new Error('Cancelled');
 
     sendMsg({

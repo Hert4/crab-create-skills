@@ -15,16 +15,19 @@ export async function extract(documentText: string): Promise<{
       system: INTENT_PROMPT,
       user: documentText,
       temperature: 0.2,
+      maxTokens: 8192,
     }),
     llm.chatJSON<StepResult>({
       system: STEPS_PROMPT,
       user: documentText,
       temperature: 0.2,
+      maxTokens: 8192,
     }),
     llm.chatJSON<ConstraintResult>({
       system: CONSTRAINTS_PROMPT,
       user: documentText,
       temperature: 0.2,
+      maxTokens: 8192,
     }),
   ]);
 
