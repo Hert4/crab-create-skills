@@ -190,6 +190,46 @@ export function SettingsPanel() {
               <option value="en">English</option>
             </select>
           </div>
+          {/* Trace2Skill Evolution toggle */}
+          <div
+            className="flex items-center justify-between p-3 rounded-xl"
+            style={{ background: 'var(--crab-surface-overlay)', border: '1px solid var(--crab-border)' }}
+          >
+            <div>
+              <p className="text-xs font-semibold" style={{ color: 'var(--crab-text)' }}>Trace2Skill Evolution</p>
+              <p className="text-[11px] mt-0.5" style={{ color: 'var(--crab-text-muted)' }}>
+                Run trajectory analysis after validation. Costs ~50+ extra API calls.
+              </p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={settings.enableEvolution}
+              onClick={() => update({ enableEvolution: !settings.enableEvolution })}
+              style={{
+                width: 36,
+                height: 20,
+                borderRadius: 10,
+                border: 'none',
+                cursor: 'pointer',
+                background: settings.enableEvolution ? 'var(--crab-accent)' : 'var(--crab-border)',
+                transition: 'background 0.2s',
+                position: 'relative',
+                flexShrink: 0,
+              }}
+            >
+              <span style={{
+                position: 'absolute',
+                top: 2,
+                left: settings.enableEvolution ? 18 : 2,
+                width: 16,
+                height: 16,
+                borderRadius: '50%',
+                background: 'white',
+                transition: 'left 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+              }} />
+            </button>
+          </div>
         </div>
       </div>
 

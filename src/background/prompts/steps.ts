@@ -1,5 +1,8 @@
 export const STEPS_PROMPT = `You are a process analyst. Extract the complete, ordered workflow from the document.
 
+## If the document describes MULTIPLE skills or workflows
+Treat all of them as one unified workflow. List steps from ALL skills in order. Do not pick just one skill.
+
 ## What to extract
 
 For each step in the workflow, provide:

@@ -55,13 +55,85 @@ async function parseDOCX(file: File): Promise<ParsedFile> {
   try {
     const mammoth = await import('mammoth');
     const arrayBuffer = await file.arrayBuffer();
-    const result = await mammoth.extractRawText({ arrayBuffer });
-    text = result.value;
+    const result = await mammoth.convertToHtml({ arrayBuffer });
+    text = htmlToStructuredText(result.value);
+    // If conversion produced nothing, fall back to raw text
+    if (!text.trim()) {
+      const raw = await mammoth.extractRawText({ arrayBuffer });
+      text = raw.value;
+    }
   } catch {
     const base64 = await toBase64(file);
     return { name: file.name, type: 'docx', size: file.size, text: '', base64, mimeType: file.type };
   }
   return { name: file.name, type: 'docx', size: file.size, text };
+}
+
+/**
+ * Convert mammoth HTML output to structured plain text using DOMParser.
+ * Preserves headings, tables (as pipe-separated rows), and list items.
+ * No regex — uses DOM traversal which is reliable for any HTML structure.
+ */
+function htmlToStructuredText(html: string): string {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const lines: string[] = [];
+
+  function walk(node: Node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const t = node.textContent?.trim();
+      if (t) lines.push(t);
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const el = node as Element;
+    const tag = el.tagName.toLowerCase();
+
+    if (tag === 'table') {
+      el.querySelectorAll('tr').forEach(tr => {
+        const cells = [...tr.querySelectorAll('td, th')].map(td => td.textContent?.trim() ?? '');
+        if (cells.some(c => c)) lines.push('| ' + cells.join(' | ') + ' |');
+      });
+      lines.push('');
+      return;
+    }
+
+    if (['h1','h2','h3','h4','h5','h6'].includes(tag)) {
+      const level = '#'.repeat(Number(tag[1]));
+      lines.push(`\n${level} ${el.textContent?.trim()}\n`);
+      return;
+    }
+
+    if (tag === 'li') {
+      lines.push(`- ${el.textContent?.trim()}`);
+      return;
+    }
+
+    if (tag === 'p') {
+      const t = el.textContent?.trim();
+      if (t) lines.push(t);
+      lines.push('');
+      return;
+    }
+
+    if (tag === 'br') {
+      lines.push('');
+      return;
+    }
+
+    el.childNodes.forEach(walk);
+  }
+
+  doc.body.childNodes.forEach(walk);
+  // Collapse runs of more than 2 consecutive blank lines
+  const collapsed = lines.join('\n').split('\n').reduce<string[]>((acc, line) => {
+    const isBlank = line.trim() === '';
+    const prevBlank = acc.length > 0 && acc[acc.length - 1].trim() === '';
+    const prevPrevBlank = acc.length > 1 && acc[acc.length - 2].trim() === '';
+    if (isBlank && prevBlank && prevPrevBlank) return acc;
+    acc.push(line);
+    return acc;
+  }, []);
+  return collapsed.join('\n').trim();
 }
 
 async function parseText(file: File): Promise<ParsedFile> {

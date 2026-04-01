@@ -10,6 +10,11 @@ Return JSON with exactly these fields:
   "domain": "<domain tag — use one of: finance, legal, hr, sales, support, data-analytics, engineering, marketing, operations, education, healthcare, logistics, creative, general>"
 }
 
+## skill_name rules
+- If the document describes a single workflow or tool → name it after that workflow
+- If the document describes an agent or system with MULTIPLE skills/capabilities → name it after the agent/system as a whole (e.g. "customer-support-agent", "finance-assistant")
+- Use kebab-case, be specific, avoid generic names like "agent-skill"
+
 ## skill_type rules
 - "capability": the skill teaches the agent HOW to do something (process invoices, analyze data, generate reports)
 - "preference": the skill stores user preferences or personal style (writing tone, formatting rules, personal workflows)
@@ -34,3 +39,4 @@ Bad description example:
 Pick the single closest tag from this list: finance, legal, hr, sales, support, data-analytics, engineering, marketing, operations, education, healthcare, logistics, creative, general
 
 Return ONLY valid JSON.`;
+

@@ -19,6 +19,7 @@ const DEFAULTS: Settings = {
   minScore: 0.85,
   evalCount: 6,
   language: 'vi',
+  enableEvolution: false,
 };
 
 // Init default settings on install

@@ -11,6 +11,7 @@ const DEFAULT_SETTINGS: Settings = {
   minScore: 0.85,
   evalCount: 6,
   language: 'vi',
+  enableEvolution: false,
 };
 
 let cachedSettings: Settings | null = null;

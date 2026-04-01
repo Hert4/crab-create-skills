@@ -7,7 +7,7 @@ import type { ToSidepanel } from '@/lib/types';
  * Listen for messages from background.ts and update stores.
  */
 export function useBgMessage() {
-  const { setPhase, setAnimation, setSkill, setEvals, setValidation, setAgentTemplate, setError } = useCompilationStore();
+  const { setPhase, setAnimation, setSkill, setEvals, setValidation, setAgentTemplate, setEvolution, setError } = useCompilationStore();
   const { addMessage, updateLastAssistant, finalizeStreaming, setProcessing } = useChatStore();
 
   useEffect(() => {
@@ -19,15 +19,22 @@ export function useBgMessage() {
         case 'CHAT_STREAM':
           updateLastAssistant(msg.delta);
           break;
-        case 'SKILL_READY':
+        case 'SKILL_READY': {
+          const isFirstTime = !useCompilationStore.getState().skill;
           setSkill(msg.skill);
-          addMessage({ role: 'assistant', content: `Skill **${msg.skill.name}** created! Check the Preview tab.` });
+          if (isFirstTime) {
+            addMessage({ role: 'assistant', content: `Skill **${msg.skill.name}** created! Check the Preview tab.` });
+          }
           break;
+        }
         case 'EVALS_READY':
           setEvals(msg.evals);
           break;
         case 'VALIDATION_PROGRESS':
           setPhase('validate', `Iteration ${msg.iteration}: ${(msg.score * 100).toFixed(0)}%`);
+          break;
+        case 'EVOLUTION_READY':
+          setEvolution(msg.evolution);
           break;
         case 'AGENT_READY': {
           setAgentTemplate(msg.agentTemplate);
@@ -57,5 +64,5 @@ export function useBgMessage() {
 
     chrome.runtime.onMessage.addListener(handler);
     return () => chrome.runtime.onMessage.removeListener(handler);
-  }, [setPhase, setSkill, setEvals, setValidation, setAgentTemplate, setError, addMessage, updateLastAssistant, finalizeStreaming, setProcessing]);
+  }, [setPhase, setSkill, setEvals, setValidation, setAgentTemplate, setEvolution, setError, addMessage, updateLastAssistant, finalizeStreaming, setProcessing]);
 }

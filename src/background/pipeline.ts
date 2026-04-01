@@ -6,6 +6,9 @@ import { generateToolSchemas } from './phases/tool-schema';
 import { generateEvals } from './phases/evaluate';
 import { validate } from './phases/validate';
 import { assembleAgent } from './phases/agent-assembly';
+import { runTrajectories } from './phases/trajectory';
+import { runAnalystFleet } from './phases/analyst';
+import { mergePatches } from './phases/merge';
 import type { ParsedFile, CompilationState, SkillOutput, AgentTemplate } from '../sidepanel/lib/types';
 import { PHASE_ANIMATION } from '../sidepanel/lib/animations';
 
@@ -43,12 +46,6 @@ export async function compile(files: ParsedFile[], userMessage: string): Promise
     ]);
     console.log(`[pipeline] detectedTools=${detectedTools.length} (preDetected=${preDetectedTools !== null})`);
     if (cancelled) throw new Error('Cancelled');
-
-    sendMsg({
-      type: 'CHAT_STREAM',
-      delta: `Skill: **${intent.skill_name}** (${intent.skill_type})\n` +
-             `${steps.steps.length} steps · ${constraints.hard_rules.length} rules · ${detectedTools.length} tools\n`,
-    });
 
     // ===== Phase 3a: Tool Schemas (sync, no LLM) =====
     const toolOutput = generateToolSchemas(detectedTools);
@@ -90,6 +87,44 @@ export async function compile(files: ParsedFile[], userMessage: string): Promise
 
     if (validation.finalSkillContent) {
       skill.content = validation.finalSkillContent;
+      // Push updated skill to Preview tab immediately after validation improves it
+      sendMsg({ type: 'SKILL_READY', skill });
+    }
+
+    // ===== Phase 5b: Trace2Skill Evolution (optional) =====
+    const enableEvolution = (settings.enableEvolution as boolean) ?? false;
+    let evolution = null;
+    if (enableEvolution) {
+      sendProgress('evolve', 'Running trajectories...', 76);
+
+      // Step 5b.1: run agent on each eval case, collect trajectories
+      const trajectories = await runTrajectories(skill.content, evals);
+      if (cancelled) throw new Error('Cancelled');
+
+      sendProgress('evolve', 'Analyzing trajectories...', 80);
+
+      // Step 5b.2: parallel analyst fleet
+      const patches = await runAnalystFleet(trajectories, skill.content);
+      if (cancelled) throw new Error('Cancelled');
+
+      sendProgress('evolve', `Merging ${patches.length} patches...`, 84);
+
+      // Step 5b.3: hierarchical merge → evolved skill
+      const mergeResult = await mergePatches(patches, skill.content, trajectories.length);
+      if (cancelled) throw new Error('Cancelled');
+
+      // Attach trajectories to result (mergePatches returns empty array for this field)
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { _finalPatch: _fp, ...mergeResultClean } = mergeResult;
+      evolution = { ...mergeResultClean, trajectories };
+
+      // Update skill content if evolution produced a better version
+      if (mergeResult.evolvedSkillContent && mergeResult.patchesApplied > 0) {
+        skill.content = mergeResult.evolvedSkillContent;
+        sendMsg({ type: 'SKILL_READY', skill });
+      }
+
+      sendMsg({ type: 'EVOLUTION_READY', evolution });
     }
 
     // ===== Phase 6: Agent Assembly =====
@@ -117,6 +152,7 @@ export async function compile(files: ParsedFile[], userMessage: string): Promise
       evals,
       validation,
       agentTemplate,
+      evolution,
       error: null,
     };
 
@@ -129,7 +165,7 @@ export async function compile(files: ParsedFile[], userMessage: string): Promise
     const error = err instanceof Error ? err.message : String(err);
     console.error('[pipeline] ERROR:', err);
     sendMsg({ type: 'ERROR', error });
-    return { phase: 'error', progress: 0, detail: '', animation: PHASE_ANIMATION.error, skill: null, evals: null, validation: null, agentTemplate: null, error };
+    return { phase: 'error', progress: 0, detail: '', animation: PHASE_ANIMATION.error, skill: null, evals: null, validation: null, agentTemplate: null, evolution: null, error };
   }
 }
 

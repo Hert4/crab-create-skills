@@ -14,15 +14,11 @@ export async function detectTools(documentText: string): Promise<DetectedTool[]>
       temperature: 0.2,
     });
 
-    // Validate and sanitize tool names to snake_case
     return tools.map(tool => ({
       ...tool,
-      name: tool.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''),
       parameters: tool.parameters || [],
     }));
   } catch {
-    // If detection fails or returns invalid data, return empty array
-    // Tool detection is optional — pipeline continues without tools
     return [];
   }
 }

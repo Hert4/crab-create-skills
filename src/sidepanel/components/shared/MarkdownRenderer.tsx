@@ -227,16 +227,14 @@ const makeComponents = (): Components => ({
     }}>{children}</blockquote>
   ),
 
-  /* Table */
+  /* Table — scrollable wrapper, compact for narrow panel */
   table: ({ children }) => (
-    <div style={{ overflowX: 'auto', margin: '10px 0' }}>
+    <div style={{ overflowX: 'auto', margin: '8px 0', borderRadius: 8, border: '0.5px solid var(--crab-border)' }}>
       <table style={{
         width: '100%',
         borderCollapse: 'collapse',
-        fontSize: '0.9em',
-        border: '0.5px solid var(--crab-border)',
-        borderRadius: 8,
-        overflow: 'hidden',
+        fontSize: '0.85em',
+        minWidth: 280,
       }}>{children}</table>
     </div>
   ),
@@ -245,22 +243,24 @@ const makeComponents = (): Components => ({
   ),
   th: ({ children }) => (
     <th style={{
-      padding: '7px 12px',
+      padding: '6px 10px',
       textAlign: 'left',
       fontWeight: 600,
-      fontSize: '0.85em',
-      color: 'var(--crab-text)',
+      fontSize: '0.82em',
+      color: 'var(--crab-text-secondary)',
       borderBottom: '0.5px solid var(--crab-border)',
-      letterSpacing: '0.02em',
+      letterSpacing: '0.04em',
       textTransform: 'uppercase',
+      whiteSpace: 'nowrap',
     }}>{children}</th>
   ),
   td: ({ children }) => (
     <td style={{
-      padding: '6px 12px',
+      padding: '5px 10px',
       borderBottom: '0.5px solid var(--crab-border-subtle)',
       color: 'var(--crab-text-secondary)',
       verticalAlign: 'top',
+      wordBreak: 'break-word',
     }}>{children}</td>
   ),
 

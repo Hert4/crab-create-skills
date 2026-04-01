@@ -1,6 +1,10 @@
 import * as llm from '../llm';
 import type { ParsedFile, DetectedTool, ToolParameter } from '../../sidepanel/lib/types';
 
+function dbg(msg: string) {
+  console.log('[ingest]', msg);
+}
+
 const IMAGE_PROMPT = `Analyze this image of a business process/workflow.
 Extract ALL text, steps, rules, and structure visible.
 If it's a flowchart/diagram, describe every node and connection.
@@ -34,24 +38,48 @@ Be specific and technical. Infer reasonable details from context.
 Write in the same language as the user's input (Vietnamese if they wrote Vietnamese).
 Return plain text, not JSON.`;
 
-const TOOL_EXTRACT_CHUNK_PROMPT = `Extract ALL tools/API calls described in this document chunk. For each tool found:
+const TOOL_LIST_PROMPT = `Read this document excerpt and list the name of EVERY callable tool or function mentioned.
 
-Return a JSON array. Each item:
+A tool name is a snake_case identifier that is explicitly the name of a callable tool — for example:
+- It appears as a heading like "Tool 3: get_candidate" or "Function: get_data"
+- It appears in a dedicated "name" or "function name" field
+- It appears as a standalone code identifier that IS ITSELF the callable unit
+
+Do NOT include any of these:
+- Any string that contains "@" or "#" — these are routing/path strings, not callable names
+- Any identifier that appears INSIDE a path like "group@subgroup#identifier" — even the part after "#" is NOT a tool name on its own
+- Any identifier that appears in parentheses after a human-readable display name, like "Plugin Display Name (plugin_identifier)" — that parenthesized identifier is a plugin/module container, not a callable tool
+- Plugin, module, or group names — these are containers that hold tools, not callable tools themselves
+- Skill or workflow names
+- Infrastructure labels (http_amis, POST, auth type, base_url, etc.)
+- Names you infer or derive from descriptions — only names that appear literally as the callable tool's own name
+
+A callable tool has its own INPUT PARAMS section or is explicitly named as "Tool N: name".
+A plugin/module identifier appears in a "Plugin |" row and groups multiple tools together — do NOT include it.
+
+Return ONLY a JSON array of strings.
+If no tool names are found in this excerpt, return [].`;
+
+const TOOL_DETAIL_PROMPT = `You are given a document and ONE tool name. Extract the full definition of that specific tool.
+
+Return a single JSON object:
 {
-  "name": "snake_case_tool_name",
+  "name": "<use EXACTLY the tool name given in the input — do not rename, do not infer a different name>",
   "description": "what this tool does",
   "trigger": "when the agent should call this tool",
   "parameters": [
     { "name": "paramName", "type": "string|number|boolean|array|object", "description": "...", "required": true }
   ],
-  "returns": "what the tool returns"
+  "returns": "description of output fields"
 }
 
 Rules:
-- Extract EVERY tool mentioned, do not skip any.
-- If a parameter type is array_string or array_object, use "array".
-- If no tools are found in this chunk, return [].
-- Return ONLY the JSON array, no markdown, no explanation.`;
+- The "name" field MUST be exactly the tool name provided in the input. Never substitute it.
+- For array or list parameter types → use "array".
+- Include ALL input parameters listed for this tool.
+- "returns" should describe the key output fields by name.
+- If the tool is not found in the document, still use the exact given name and return empty parameters.
+- Return ONLY the JSON object, no markdown, no explanation.`;
 
 /**
  * Try to parse an AMIS agent export JSON ({ agent, tools, skills }).
@@ -135,104 +163,107 @@ function tryParseAmisAgentJson(raw: string): { tools: DetectedTool[]; text: stri
 }
 
 /**
- * Split text into chunks ≤ maxChars, keeping logical units intact.
+ * Extract tools from large plain-text documents.
  *
- * Strategy (in order of priority):
- * 1. Semantic boundaries: split at "SKILL N:" / "Tool N:" headings (agent spec docs)
- * 2. Blank-line paragraph boundaries (\n\n)
- * 3. Single-newline boundaries (\n)
- * 4. Hard split at maxChars (last resort)
+ * Pass 1 — collect tool names:
+ *   Slice into overlapping windows (8k chars, 1k overlap) so no tool definition
+ *   is ever split across a boundary without appearing in at least one full window.
+ *   Ask LLM to list names from each window in parallel.
+ *   Union all names → complete list, no misses.
  *
- * DOCX extracted by mammoth often arrives as one continuous string with no
- * newlines — strategies 1 and 4 handle that case.
- */
-function chunkText(text: string, maxChars = 10_000): string[] {
-  if (text.length <= maxChars) return [text];
-
-  // Strategy 1: split at semantic headings (agent spec / AMIS DOCX format)
-  const semanticRe = /(?=(?:SKILL \d+:|Tool 1:))/g;
-  const semanticParts = text.split(semanticRe).filter(p => p.length > 0);
-  if (semanticParts.length > 2) {
-    return mergeIntoChunks(semanticParts, maxChars);
-  }
-
-  // Strategy 2 & 3: newline boundaries
-  const separator = text.includes('\n\n') ? /\n{2,}/ : /\n/;
-  const lineParts = text.split(separator).filter(p => p.length > 0);
-  if (lineParts.length > 1) {
-    return mergeIntoChunks(lineParts, maxChars);
-  }
-
-  // Strategy 4: hard split
-  const chunks: string[] = [];
-  for (let start = 0; start < text.length; start += maxChars) {
-    chunks.push(text.slice(start, start + maxChars).trim());
-  }
-  return chunks.filter(c => c.length > 0);
-}
-
-/** Greedily merge parts into chunks ≤ maxChars. Oversized single parts are hard-split. */
-function mergeIntoChunks(parts: string[], maxChars: number): string[] {
-  const chunks: string[] = [];
-  let current = '';
-  for (const part of parts) {
-    const candidate = current ? current + ' ' + part : part;
-    if (candidate.length > maxChars && current.length > 0) {
-      chunks.push(current.trim());
-      current = part;
-    } else {
-      current = candidate;
-    }
-    if (current.length > maxChars) {
-      for (let start = 0; start < current.length; start += maxChars) {
-        chunks.push(current.slice(start, start + maxChars).trim());
-      }
-      current = '';
-    }
-  }
-  if (current.trim()) chunks.push(current.trim());
-  return chunks.filter(c => c.length > 0);
-}
-
-/**
- * Extract tools from large plain-text documents by chunking and running the
- * LLM extractor on each chunk in parallel, then deduplicating by tool name.
- * Used for DOCX/text agent specs that don't have machine-readable JSON.
+ * Pass 2 — extract details:
+ *   For each tool, feed only the window(s) that mentioned its name.
+ *   Each call is small and focused → no overwhelm, no misses.
  */
 async function extractToolsFromChunks(text: string): Promise<DetectedTool[] | null> {
-  const chunks = chunkText(text, 10_000);
-  console.log(`[ingest] extractToolsFromChunks: ${chunks.length} chunks from ${text.length} chars`);
+  const WINDOW = 8_000;
+  const OVERLAP = 1_000;
+  const STEP = WINDOW - OVERLAP;
 
-  const results: DetectedTool[][] = [];
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
-    const batch = await llm.chatJSON<DetectedTool[]>({
-      system: TOOL_EXTRACT_CHUNK_PROMPT,
-      user: chunk,
-      temperature: 0.1,
-    }).catch((err) => {
-      console.warn(`[ingest] chunk ${i} failed:`, err);
-      return [] as DetectedTool[];
-    });
-    console.log(`[ingest] chunk ${i}: got ${Array.isArray(batch) ? batch.length : 'non-array'} tools`);
-    results.push(Array.isArray(batch) ? batch : []);
+  // Build overlapping windows
+  const windows: string[] = [];
+  for (let start = 0; start < text.length; start += STEP) {
+    windows.push(text.slice(start, start + WINDOW));
   }
 
-  const seen = new Map<string, DetectedTool>();
-  for (const batch of results) {
-    if (!Array.isArray(batch)) continue;
-    for (const tool of batch) {
-      if (!tool?.name || seen.has(tool.name)) continue;
-      seen.set(tool.name, {
-        ...tool,
-        name: tool.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''),
-        parameters: tool.parameters ?? [],
-      });
+  dbg(`extractToolsFromChunks: ${text.length} chars → ${windows.length} windows`);
+  windows.forEach((w, i) => dbg(`window[${i}] preview: ${w.slice(0, 300)}`))
+
+  // Pass 1: collect names from every window in parallel
+  const nameResults = await Promise.all(
+    windows.map((w, i) =>
+      llm.chatJSON<string[]>({
+        system: TOOL_LIST_PROMPT,
+        user: w,
+        temperature: 0.1,
+      }).catch((err) => {
+        console.warn(`[ingest] pass1 window ${i} failed:`, err);
+        return [] as string[];
+      })
+    )
+  );
+
+  // Log what each window found
+  nameResults.forEach((names, i) => dbg(`pass1 window[${i}] found: ${JSON.stringify(names)}`))
+
+  // Map: tool name → set of window indices where it was found
+  const nameToWindows = new Map<string, Set<number>>();
+  nameResults.forEach((names, idx) => {
+    if (!Array.isArray(names)) return;
+    for (const n of names) {
+      if (typeof n !== 'string' || !n.trim()) continue;
+      if (!nameToWindows.has(n)) nameToWindows.set(n, new Set());
+      nameToWindows.get(n)!.add(idx);
     }
-  }
+  });
 
-  console.log(`[ingest] extractToolsFromChunks: total unique tools = ${seen.size}`);
-  return seen.size > 0 ? [...seen.values()] : null;
+  // Post-Pass-1 dedup: remove obvious false positives before Pass 2.
+  //
+  // Rule A — suffix fragment only: drop X if another collected name Y ends with "_X".
+  //   e.g. "save_email_template" dropped when "function_recruitment_save_email_template" exists.
+  //   This is safe because a real tool would never be a pure suffix of a longer tool name.
+  //
+  // NOTE: We intentionally do NOT filter by "#name" or "(name)" patterns here,
+  // because real tool names often appear BOTH as standalone names AND inside Action Paths.
+  // Those cases must be handled by the prompt, not by code-level filtering.
+  const allNames = [...nameToWindows.keys()];
+  const toolNames = allNames.filter(name =>
+    !allNames.some(other => other !== name && other.endsWith('_' + name))
+  );
+  const dropped = allNames.filter(n => !toolNames.includes(n));
+  if (dropped.length > 0) dbg(`pass1 dedup dropped: ${JSON.stringify(dropped)}`);
+
+  dbg(`pass1 FINAL: ${toolNames.length} names: ${JSON.stringify(toolNames)}`);
+  if (toolNames.length === 0) return null;
+
+  // Pass 2: extract detail using only the relevant window(s) per tool
+  const results = await Promise.all(
+    toolNames.map((name, i) => {
+      const relevantWindows = [...(nameToWindows.get(name) ?? [])].map(idx => windows[idx]);
+      const context = relevantWindows.join('\n\n---\n\n');
+
+      return llm.chatJSON<DetectedTool>({
+        system: TOOL_DETAIL_PROMPT,
+        user: `Tool name: ${name}\n\nDocument excerpt:\n${context}`,
+        temperature: 0.1,
+      }).then(t => ({
+        // Always enforce the Pass 1 name — LLM must not rename the tool
+        ...t,
+        name,
+        parameters: t.parameters ?? [],
+      })).catch((err) => {
+        console.warn(`[ingest] pass2 tool "${name}" (${i}) failed:`, err);
+        return null;
+      });
+    })
+  );
+
+  const tools: DetectedTool[] = results
+    .filter((t): t is DetectedTool => t !== null && t.description !== '')
+    .map(t => ({ ...t, parameters: t.parameters ?? [] }));
+
+  dbg(`pass2: ${tools.length} tools: ${tools.map(t => t.name).join(', ')}`);
+  return tools.length > 0 ? tools : null;
 }
 
 /**
@@ -300,24 +331,24 @@ export async function ingest(
       parts.push(`## PDF: ${file.name}\n\n${analysis}`);
 
     } else if (file.text) {
-      console.log(`[ingest] file "${file.name}": ${file.text.length} chars, type=${file.type}`);
+      dbg(`file "${file.name}": ${file.text.length} chars, type=${file.type}`);
 
       // 1. Machine-readable AMIS agent export JSON → parse directly, zero LLM, guaranteed complete
       const amis = tryParseAmisAgentJson(file.text);
       if (amis) {
-        console.log(`[ingest] AMIS JSON detected → ${amis.tools.length} tools (no LLM)`);
+        dbg(`AMIS JSON detected → ${amis.tools.length} tools`);
         preDetectedTools = amis.tools;
         parts.push(`## File: ${file.name} (AMIS agent export)\n\n${amis.text}`);
 
-      // 2. Large plain-text/DOCX spec → chunk + LLM extract sequentially, then deduplicate
-      } else if (file.text.length > 20_000) {
-        console.log(`[ingest] large file → extractToolsFromChunks`);
+      // 2. Any structured text file (DOCX, plain text) → always run 2-pass extraction.
+      //    The threshold check is removed: even small files can describe many tools,
+      //    and the 2-pass approach is reliable regardless of document size.
+      } else {
+        dbg(`running 2-pass extraction on "${file.name}"`);
         const extracted = await extractToolsFromChunks(file.text);
         if (extracted && extracted.length > 0) {
-          console.log(`[ingest] extracted ${extracted.length} tools from chunks`);
+          dbg(`extracted ${extracted.length} tools: ${extracted.map(t => t.name).join(', ')}`);
           preDetectedTools = extracted;
-          // Build compact summary from extracted tools — avoids sending 36k+ raw text
-          // to summarizeIfNeeded which would hit LLM context limits.
           const summaryLines = [
             `## File: ${file.name} (extracted ${extracted.length} tools)`,
             '',
@@ -329,14 +360,10 @@ export async function ingest(
           ];
           parts.push(summaryLines.join('\n'));
         } else {
-          // Extraction yielded nothing — fall back to summarize for assemble phase
+          // Nothing found — pass verbatim for downstream LLM to handle
           const content = await summarizeIfNeeded(file.text, file.name);
           parts.push(`## File: ${file.name}\n\n${content}`);
         }
-
-      // 3. Small file → pass through verbatim, let detectTools handle it normally
-      } else {
-        parts.push(`## File: ${file.name}\n\n${file.text}`);
       }
     }
   }

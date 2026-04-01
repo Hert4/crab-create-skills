@@ -46,6 +46,7 @@ export const PHASE_ANIMATION: Record<Phase, AnimationId> = {
   assemble: 'clawd-working-building',
   evaluate: 'clawd-working-juggling',
   validate: 'clawd-working-debugger',
+  evolve:   'clawd-working-wizard',
   agent:    'clawd-working-conducting',
   optimize: 'clawd-working-wizard',
   done:     'clawd-happy',

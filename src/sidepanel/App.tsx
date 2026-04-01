@@ -6,28 +6,31 @@ import { ToolsPanel } from '@/components/tools/ToolsPanel';
 import { AgentPanel } from '@/components/agent/AgentPanel';
 import { HistoryList } from '@/components/history/HistoryList';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
+import { SkillAudit } from '@/components/audit/SkillAudit';
 import { ProgressStepper } from '@/components/shared/ProgressStepper';
 import { ErrorToast } from '@/components/shared/ErrorToast';
 import { useCompilationStore } from '@/stores/compilationStore';
 import { useChatStore } from '@/stores/chatStore';
 import { useBgMessage } from '@/hooks/useBgMessage';
-import { MessageSquare, Eye, BarChart3, Wrench, Bot, Clock, Settings, SquarePen } from 'lucide-react';
+import { MessageSquare, Eye, BarChart3, Wrench, Bot, Clock, Settings, SquarePen, FlaskConical } from 'lucide-react';
 import { CrabMascot, CrabLogoAscii } from '@/components/shared/CrabMascot';
 
 const TABS = [
-  { id: 'chat',     icon: MessageSquare, title: 'Chat' },
-  { id: 'preview',  icon: Eye,           title: 'Preview' },
-  { id: 'evals',    icon: BarChart3,     title: 'Evals' },
-  { id: 'tools',    icon: Wrench,        title: 'Tools' },
-  { id: 'agent',    icon: Bot,           title: 'Agent' },
-  { id: 'history',  icon: Clock,         title: 'History' },
-  { id: 'settings', icon: Settings,      title: 'Settings' },
+  { id: 'chat',     icon: MessageSquare,  title: 'Chat' },
+  { id: 'preview',  icon: Eye,            title: 'Preview' },
+  { id: 'evals',    icon: BarChart3,      title: 'Evals' },
+  { id: 'tools',    icon: Wrench,         title: 'Tools' },
+  { id: 'agent',    icon: Bot,            title: 'Agent' },
+  { id: 'audit',    icon: FlaskConical,   title: 'Audit' },
+  { id: 'history',  icon: Clock,          title: 'History' },
+  { id: 'settings', icon: Settings,       title: 'Settings' },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
 
 export default function App() {
   const phase = useCompilationStore(s => s.phase);
+  const evolution = useCompilationStore(s => s.evolution);
   const { reset: resetCompilation } = useCompilationStore();
   const { newChat } = useChatStore();
   const msgCount = useChatStore(s => s.messages.length);
@@ -131,6 +134,7 @@ export default function App() {
                 color: isActive ? 'var(--crab-accent)' : 'var(--crab-text-muted)',
                 transition: 'all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)',
                 minWidth: 0,
+                position: 'relative',
               }}
               onMouseEnter={e => {
                 if (!isActive) {
@@ -146,6 +150,19 @@ export default function App() {
               }}
             >
               <Icon style={{ width: 15, height: 15 }} />
+              {/* Badge on Audit tab when evolution data is available */}
+              {tab.id === 'audit' && evolution && evolution.sopPatterns.length > 0 && (
+                <span style={{
+                  position: 'absolute',
+                  top: 4,
+                  right: 4,
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: '#a78bfa',
+                  border: '1px solid var(--crab-bg)',
+                }} />
+              )}
             </button>
           );
         })}
@@ -161,6 +178,7 @@ export default function App() {
         <div style={{ display: activeTab === 'evals'    ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 0', minHeight: 0 }}><EvalDashboard /></div>
         <div style={{ display: activeTab === 'tools'    ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 0', minHeight: 0 }}><ToolsPanel /></div>
         <div style={{ display: activeTab === 'agent'    ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 0', minHeight: 0 }}><AgentPanel /></div>
+        <div style={{ display: activeTab === 'audit'    ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 0', minHeight: 0 }}><SkillAudit /></div>
         <div style={{ display: activeTab === 'history'  ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 0', minHeight: 0 }}><HistoryList /></div>
         <div style={{ display: activeTab === 'settings' ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 0', minHeight: 0, overflowY: 'auto', padding: 16 }}><SettingsPanel /></div>
       </div>

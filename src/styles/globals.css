@@ -229,6 +229,38 @@
   border-color: var(--crab-border-strong) !important;
 }
 
+/* md-root: root container for rendered markdown */
+.md-root {
+  line-height: 1.65;
+  word-break: break-word;
+  overflow-x: hidden;
+  max-width: 100%;
+}
+/* Remove top margin from first child, bottom margin from last child */
+.md-root > *:first-child { margin-top: 0 !important; }
+.md-root > *:last-child  { margin-bottom: 0 !important; }
+
+/* Compact paragraph spacing inside narrow panel */
+.md-root p + p { margin-top: 6px; }
+
+/* Bold tool names / progress labels look distinct */
+.md-root strong {
+  color: var(--crab-text);
+  font-weight: 650;
+}
+
+/* Inline code — slightly warmer tint, fix double-render from both inline code & hljs */
+.md-root code:not([class*="language-"]) {
+  background: color-mix(in srgb, var(--crab-bg-tertiary) 90%, var(--crab-accent) 10%);
+  border: 0.5px solid var(--crab-border);
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 0.85em;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--crab-accent-hover);
+  word-break: break-all;
+}
+
 /* highlight.js base overrides (dark crab palette) */
 .hljs {
   background: transparent !important;

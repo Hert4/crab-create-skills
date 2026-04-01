@@ -10,6 +10,7 @@ export interface Settings {
   minScore: number;
   evalCount: number;     // Number of test cases for evaluation (default 6)
   language: 'vi' | 'en';
+  enableEvolution: boolean;   // Enable Trace2Skill Phase 5b (default false — costs extra API calls)
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -23,6 +24,7 @@ export const DEFAULT_SETTINGS: Settings = {
   minScore: 0.85,
   evalCount: 6,
   language: 'vi',
+  enableEvolution: false,
 };
 
 // ==================== Files ====================
@@ -47,7 +49,7 @@ export interface ChatMessage {
 }
 
 // ==================== Pipeline ====================
-export type Phase = 'idle' | 'ingest' | 'extract' | 'assemble' | 'evaluate' | 'validate' | 'agent' | 'optimize' | 'done' | 'error';
+export type Phase = 'idle' | 'ingest' | 'extract' | 'assemble' | 'evaluate' | 'validate' | 'evolve' | 'agent' | 'optimize' | 'done' | 'error';
 
 export interface CompilationState {
   phase: Phase;
@@ -58,6 +60,7 @@ export interface CompilationState {
   evals: EvalSet | null;
   validation: ValidationResult | null;
   agentTemplate: AgentTemplate | null;
+  evolution: EvolutionResult | null;
   error: string | null;
 }
 
@@ -232,6 +235,47 @@ export interface AgentTemplate {
   config: AgentConfig;
 }
 
+// ==================== Phase 5b: Trace2Skill Evolution ====================
+
+export interface TrajectoryStep {
+  reasoning: string;
+  action: string;
+  observation: string;
+}
+
+export interface Trajectory {
+  evalId: number;
+  steps: TrajectoryStep[];
+  finalAnswer: string;
+  success: boolean;
+}
+
+export interface SkillPatch {
+  trajectoryId: number;          // evalId of the source trajectory
+  analystType: 'error' | 'success';
+  rootCause: string;             // (error analyst only) why the agent failed
+  proposedAdditions: string[];   // guidance lines to ADD to skill
+  proposedRemovals: string[];    // guidance lines to REMOVE from skill
+  confidence: number;            // 0–1
+  generalizationReason: string;  // why this patch is not trajectory-specific
+}
+
+export interface SopPattern {
+  title: string;
+  description: string;
+  patchCount: number;            // how many patches support this pattern
+  category: 'verification' | 'tool-selection' | 'safety' | 'workflow' | 'other';
+}
+
+export interface EvolutionResult {
+  trajectories: Trajectory[];
+  patches: SkillPatch[];
+  sopPatterns: SopPattern[];
+  evolvedSkillContent: string;
+  patchesApplied: number;
+  patchesRejected: number;
+}
+
 // ==================== History ====================
 export interface HistoryEntry {
   id: string;
@@ -261,6 +305,7 @@ export type ToSidepanel =
   | { type: 'SKILL_READY'; skill: SkillOutput }
   | { type: 'EVALS_READY'; evals: EvalSet }
   | { type: 'VALIDATION_PROGRESS'; iteration: number; score: number }
+  | { type: 'EVOLUTION_READY'; evolution: EvolutionResult }
   | { type: 'AGENT_READY'; agentTemplate: AgentTemplate }
   | { type: 'DONE'; result: CompilationState }
   | { type: 'ERROR'; error: string };
